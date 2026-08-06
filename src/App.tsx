@@ -1,6 +1,8 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { AppShell } from './components/layout/AppShell'
+import { AccountSettings } from './components/account/AccountSettings'
+import { AuthPanel } from './components/account/AuthPanel'
 import { EasierStep } from './components/wizard/EasierStep'
 import { HouseholdStep } from './components/wizard/HouseholdStep'
 import { PathsStep } from './components/wizard/PathsStep'
@@ -10,6 +12,8 @@ import { TalkStep } from './components/wizard/TalkStep'
 import { TodayStep } from './components/wizard/TodayStep'
 import { WelcomeStep } from './components/wizard/WelcomeStep'
 import { useApp } from './hooks/useApp'
+import { useAuth } from './hooks/useAuth'
+import { useCollaboration } from './hooks/useCollaboration'
 
 const PlacesWorkspace = lazy(async () => {
   const mod = await import('./components/places/PlacesWorkspace')
@@ -18,8 +22,15 @@ const PlacesWorkspace = lazy(async () => {
 
 export default function App() {
   const app = useApp()
+  const auth = useAuth()
+  const collab = useCollaboration({
+    user: auth.user,
+    localPlaces: app.places,
+    replaceLocalPlaces: app.replacePlaces,
+  })
+  const [accountOpen, setAccountOpen] = useState(false)
 
-  if (!app.ready) {
+  if (!app.ready || !auth.ready) {
     return (
       <div className="flex min-h-screen items-center justify-center text-ink-soft">
         Loading your saved answers…
@@ -29,10 +40,29 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <AppShell app={app}>
+      <AppShell
+        app={app}
+        auth={auth}
+        collab={collab}
+        accountOpen={accountOpen}
+        onAccountOpenChange={setAccountOpen}
+      >
         {app.error ? (
           <div className="mb-4 rounded-2xl bg-honey-soft p-4 text-ink">
             {app.error}
+          </div>
+        ) : null}
+
+        {accountOpen ? (
+          <div className="mb-6 space-y-4">
+            {auth.signedIn ? (
+              <AccountSettings
+                auth={auth}
+                onClose={() => setAccountOpen(false)}
+              />
+            ) : (
+              <AuthPanel auth={auth} onClose={() => setAccountOpen(false)} />
+            )}
           </div>
         ) : null}
 
@@ -44,7 +74,12 @@ export default function App() {
               </div>
             }
           >
-            <PlacesWorkspace app={app} />
+            <PlacesWorkspace
+              app={app}
+              auth={auth}
+              collab={collab}
+              onOpenAccount={() => setAccountOpen(true)}
+            />
           </Suspense>
         ) : !app.scenario || app.ui.activeStep === 'welcome' ? (
           <WelcomeStep app={app} />

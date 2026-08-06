@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Heart, Plus, Trash2, X } from 'lucide-react'
+import { CheckSquare, ExternalLink, Heart, Plus, Share2, Square, Trash2, Users, X } from 'lucide-react'
 import type { AppController } from '../../hooks/useApp'
+import type { AuthController } from '../../hooks/useAuth'
+import type { CollaborationController } from '../../hooks/useCollaboration'
 import type {
   PetsPolicy,
   PlaceListingKind,
@@ -9,13 +11,27 @@ import type {
   PlaceTier,
   SavedPlace,
 } from '../../domain/types'
+import {
+  cityKey,
+  formatPlaceAddress,
+  parseLocationString,
+  placeCityLabel,
+  sanitizeAddress,
+  sanitizeState,
+  sanitizeStreet,
+  sanitizeZip,
+} from '../../domain/places/address'
 import { formatMoney } from '../../domain/finance/calculations'
+import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
-import { Button } from '../ui/Button'
+import { Button, ButtonLink } from '../ui/Button'
 import { ChoiceGroup } from '../ui/ChoiceGroup'
+import { CityCombobox } from '../ui/CityCombobox'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { CurrencyInput, Field, NumberInput, TextInput, TextTextarea } from '../ui/Field'
-import { DualRangeSlider, padBounds } from './DualRangeSlider'
 import { ImageLightbox, OpenableImage } from './ImageLightbox'
+import { PlacePhotoEditor } from './PlacePhotoEditor'
+import { PendingInvitesBanner, ShareSheet } from './ShareSheet'
 
 const TIERS: PlaceTier[] = ['dream', 'strong', 'maybe', 'pass']
 const TIER_LABEL: Record<PlaceTier, string> = {
@@ -85,6 +101,10 @@ const emptyForm = (): PlaceForm => ({
   listingKind: 'rent',
   price: null,
   monthlyEstimate: null,
+  street: '',
+  city: '',
+  state: '',
+  zip: '',
   location: '',
   bedrooms: null,
   bathrooms: null,
@@ -102,9 +122,22 @@ const emptyForm = (): PlaceForm => ({
 
 function formFromPlace(place: SavedPlace): PlaceForm {
   const { id: _i, createdAt: _c, updatedAt: _u, ...rest } = place
+  const addr = sanitizeAddress({
+    street: rest.street ?? '',
+    city: rest.city ?? '',
+    state: rest.state ?? '',
+    zip: rest.zip ?? '',
+  })
+  const resolved =
+    addr.city || addr.street || addr.state || addr.zip
+      ? addr
+      : parseLocationString(rest.location ?? '')
+
   return {
     ...emptyForm(),
     ...rest,
+    ...resolved,
+    location: formatPlaceAddress(resolved),
     listingKind: rest.listingKind ?? 'rent',
     pets: rest.pets === 'yes' || rest.pets === 'limited' ? rest.pets : 'no',
     petsNote: rest.petsNote ?? '',
@@ -142,22 +175,8 @@ function listPrice(place: SavedPlace): number | null {
   return place.price != null && Number.isFinite(place.price) ? place.price : null
 }
 
-/** First comma segment is treated as city; pure ZIPs are ignored. */
-function cityFromLocation(location: string | null | undefined): string | null {
-  const trimmed = (location ?? '').trim()
-  if (!trimmed) return null
-  const first = trimmed.split(',')[0]?.trim() ?? ''
-  if (!first) return null
-  if (/^\d{5}(-\d{4})?$/.test(first)) return null
-  return first
-}
-
-function cityKey(city: string): string {
-  return city.trim().toLowerCase().replace(/\s+/g, ' ')
-}
-
-function placeCityKey(place: Pick<SavedPlace, 'location'>): string | null {
-  const city = cityFromLocation(place.location)
+function placeCityKey(place: Pick<SavedPlace, 'city' | 'location'>): string | null {
+  const city = placeCityLabel(place)
   return city ? cityKey(city) : null
 }
 
@@ -166,7 +185,7 @@ function citiesFromPlaces(
 ): { key: string; label: string; count: number }[] {
   const map = new Map<string, { label: string; count: number }>()
   for (const place of places) {
-    const city = cityFromLocation(place.location)
+    const city = placeCityLabel(place)
     if (!city) continue
     const key = cityKey(city)
     const existing = map.get(key)
@@ -190,40 +209,12 @@ function placeMatchesCities(place: SavedPlace, selectedKeys: string[]): boolean 
 function sortPlaces(
   places: SavedPlace[],
   sort: ListSort,
-  monthlyRange: { min: number; max: number } | null,
-  listRange: { min: number; max: number } | null,
   petsOnly: boolean,
   cityKeys: string[],
-  monthlyBounds: { min: number; max: number } | null,
-  listBounds: { min: number; max: number } | null,
 ): SavedPlace[] {
-  let next = [...places]
-
-  const monthlyActive =
-    monthlyRange &&
-    monthlyBounds &&
-    (monthlyRange.min > monthlyBounds.min || monthlyRange.max < monthlyBounds.max)
-  const listActive =
-    listRange &&
-    listBounds &&
-    (listRange.min > listBounds.min || listRange.max < listBounds.max)
-
-  next = next.filter((p) => {
+  let next = places.filter((p) => {
     if (petsOnly && !allowsPets(p)) return false
     if (!placeMatchesCities(p, cityKeys)) return false
-
-    if (monthlyActive && monthlyRange) {
-      const monthly = monthlyCost(p)
-      if (monthly == null) return false
-      if (monthly < monthlyRange.min || monthly > monthlyRange.max) return false
-    }
-
-    if (listActive && listRange) {
-      if (p.listingKind === 'rent') return true
-      const list = listPrice(p)
-      if (list == null) return false
-      if (list < listRange.min || list > listRange.max) return false
-    }
     return true
   })
 
@@ -232,7 +223,7 @@ function sortPlaces(
     return dir === 1 ? value : -value
   }
 
-  next.sort((a, b) => {
+  next = [...next].sort((a, b) => {
     if (sort === 'monthly_asc') {
       return byMissingLast(monthlyCost(a), 1) - byMissingLast(monthlyCost(b), 1)
     }
@@ -252,7 +243,17 @@ function sortPlaces(
   return next
 }
 
-export function PlacesWorkspace({ app }: { app: AppController }) {
+export function PlacesWorkspace({
+  app,
+  auth,
+  collab,
+  onOpenAccount,
+}: {
+  app: AppController
+  auth: AuthController
+  collab: CollaborationController
+  onOpenAccount: () => void
+}) {
   const [form, setForm] = useState<PlaceForm>(emptyForm())
   const [editingId, setEditingId] = useState<string | null>(null)
   const [view, setView] = useState<'list' | 'tiers' | 'compare'>('list')
@@ -260,17 +261,56 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
   const [imageDraft, setImageDraft] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [listSort, setListSort] = useState<ListSort>('featured')
-  const [monthlyRange, setMonthlyRange] = useState<{ min: number; max: number } | null>(
-    null,
-  )
-  const [listRange, setListRange] = useState<{ min: number; max: number } | null>(null)
   const [petsOnly, setPetsOnly] = useState(false)
   const [cityKeys, setCityKeys] = useState<string[]>([])
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [shareOpen, setShareOpen] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    id: string
+    title: string
+  } | null>(null)
   const [lightbox, setLightbox] = useState<{
     images: string[]
     index: number
     title?: string
   } | null>(null)
+
+  const allPlaces = collab.cloudActive ? collab.places : app.places
+
+  const persistPlace = (place: SavedPlace) => {
+    if (collab.cloudActive) {
+      void collab.upsertPlace(place).catch((e) => {
+        alert(e instanceof Error ? e.message : 'Could not save place to cloud.')
+        app.upsertPlace(place)
+      })
+    } else {
+      app.upsertPlace(place)
+    }
+  }
+
+  const deletePlace = (id: string) => {
+    if (collab.cloudActive) {
+      void collab.removePlace(id).catch((e) => {
+        alert(e instanceof Error ? e.message : 'Could not delete from cloud.')
+        app.removePlace(id)
+      })
+    } else {
+      app.removePlace(id)
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((ids) =>
+      ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
+    )
+  }
+
+  const selectAllVisible = () => {
+    setSelectedIds(listPlaces.map((p) => p.id))
+  }
+
+  const clearSelection = () => setSelectedIds([])
 
   const openLightbox = (images: string[], index = 0, title?: string) => {
     const clean = images.filter(Boolean)
@@ -284,7 +324,12 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
 
   const moveBudget = app.finance?.moveMonthly ?? null
 
-  const availableCities = useMemo(() => citiesFromPlaces(app.places), [app.places])
+  const availableCities = useMemo(() => citiesFromPlaces(allPlaces), [allPlaces])
+
+  const savedCityNames = useMemo(
+    () => availableCities.map((c) => c.label),
+    [availableCities],
+  )
 
   // Drop city selections that no longer exist in saved places
   const activeCityKeys = useMemo(() => {
@@ -293,109 +338,26 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
     return cityKeys.filter((key) => known.has(key))
   }, [cityKeys, availableCities])
 
-  const monthlyBounds = useMemo(() => {
-    const values = app.places
-      .map(monthlyCost)
-      .filter((n): n is number => n != null && n > 0)
-    if (!values.length) return null
-    return padBounds(values)
-  }, [app.places])
-
-  const listBounds = useMemo(() => {
-    const values = app.places
-      .filter((p) => p.listingKind === 'buy')
-      .map(listPrice)
-      .filter((n): n is number => n != null && n > 0)
-    if (!values.length) return null
-    return padBounds(values)
-  }, [app.places])
-
-  // Keep slider selection aligned when data bounds change
-  const monthlySelection = useMemo(() => {
-    if (!monthlyBounds) return null
-    if (!monthlyRange) return { min: monthlyBounds.min, max: monthlyBounds.max }
-    return {
-      min: Math.min(
-        monthlyBounds.max,
-        Math.max(monthlyBounds.min, monthlyRange.min),
-      ),
-      max: Math.min(
-        monthlyBounds.max,
-        Math.max(monthlyBounds.min, monthlyRange.max),
-      ),
-    }
-  }, [monthlyBounds, monthlyRange])
-
-  const listSelection = useMemo(() => {
-    if (!listBounds) return null
-    if (!listRange) return { min: listBounds.min, max: listBounds.max }
-    return {
-      min: Math.min(listBounds.max, Math.max(listBounds.min, listRange.min)),
-      max: Math.min(listBounds.max, Math.max(listBounds.min, listRange.max)),
-    }
-  }, [listBounds, listRange])
-
   const listPlaces = useMemo(() => {
-    return sortPlaces(
-      app.places,
-      listSort,
-      monthlySelection,
-      listSelection,
-      petsOnly,
-      activeCityKeys,
-      monthlyBounds
-        ? { min: monthlyBounds.min, max: monthlyBounds.max }
-        : null,
-      listBounds ? { min: listBounds.min, max: listBounds.max } : null,
-    )
-  }, [
-    app.places,
-    listSort,
-    monthlySelection,
-    listSelection,
-    petsOnly,
-    activeCityKeys,
-    monthlyBounds,
-    listBounds,
-  ])
+    return sortPlaces(allPlaces, listSort, petsOnly, activeCityKeys)
+  }, [allPlaces, listSort, petsOnly, activeCityKeys])
 
   const boardPlaces = useMemo(() => {
-    let base = app.places
+    let base = allPlaces
     if (petsOnly) base = base.filter(allowsPets)
     if (activeCityKeys.length) {
       base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
     }
     return [...base].sort(sortByFavoriteThenRecent)
-  }, [app.places, petsOnly, activeCityKeys])
-
-  const monthlyRangeActive =
-    Boolean(
-      monthlyBounds &&
-        monthlySelection &&
-        (monthlySelection.min > monthlyBounds.min ||
-          monthlySelection.max < monthlyBounds.max),
-    )
-  const listRangeActive =
-    Boolean(
-      listBounds &&
-        listSelection &&
-        (listSelection.min > listBounds.min || listSelection.max < listBounds.max),
-    )
+  }, [allPlaces, petsOnly, activeCityKeys])
 
   const cityFilterActive = activeCityKeys.length > 0
-  const hasActiveFilters =
-    monthlyRangeActive || listRangeActive || petsOnly || cityFilterActive
-
-  const clearPriceFilters = () => {
-    setMonthlyRange(null)
-    setListRange(null)
-  }
+  const hasActiveFilters = petsOnly || cityFilterActive
 
   const clearAllFilters = () => {
     setListSort('featured')
     setPetsOnly(false)
     setCityKeys([])
-    clearPriceFilters()
   }
 
   const toggleCity = (key: string) => {
@@ -410,13 +372,21 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
       return
     }
     const now = new Date().toISOString()
+    const addr = sanitizeAddress({
+      street: form.street,
+      city: form.city,
+      state: form.state,
+      zip: form.zip,
+    })
     const place: SavedPlace = {
       id: editingId ?? crypto.randomUUID(),
       createdAt: editingId
-        ? app.places.find((p) => p.id === editingId)?.createdAt || now
+        ? allPlaces.find((p) => p.id === editingId)?.createdAt || now
         : now,
       updatedAt: now,
       ...form,
+      ...addr,
+      location: formatPlaceAddress(addr),
       price: form.listingKind === 'buy' ? form.price : null,
       // Price only: rent uses monthly; buy uses list price (no estimated monthly).
       monthlyEstimate: form.listingKind === 'rent' ? form.monthlyEstimate : null,
@@ -426,7 +396,7 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
       concernTags: form.concernTags,
       images: form.images.filter(Boolean),
     }
-    app.upsertPlace(place)
+    persistPlace(place)
     setForm(emptyForm())
     setEditingId(null)
     setImageDraft('')
@@ -486,14 +456,102 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3 rounded-[1.75rem] border border-line bg-panel px-5 py-4 shadow-[var(--shadow-soft)] md:px-7">
-        <h1 className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
-          Places
-        </h1>
-        <Button variant="honey" onClick={openNewPlace}>
-          <Plus className="h-4 w-4" />
-          Add place
-        </Button>
+        <div>
+          <h1 className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
+            Places
+          </h1>
+          {collab.cloudActive && collab.activeList ? (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-soft">
+              <Users className="h-4 w-4" />
+              <span>
+                {collab.activeList.name}
+                {collab.members.filter((m) => m.status === 'accepted').length > 1
+                  ? ' · shared board'
+                  : ''}
+              </span>
+              {collab.lists.length > 1 ? (
+                <select
+                  className="ml-1 rounded-xl border border-line bg-folio px-2 py-1 text-sm text-ink"
+                  value={collab.activeListId ?? ''}
+                  onChange={(e) => void collab.selectList(e.target.value)}
+                >
+                  {collab.lists.map((list) => (
+                    <option key={list.id} value={list.id}>
+                      {list.name}
+                      {list.role === 'owner' ? '' : ' (shared)'}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-ink-soft">
+              Save listings here. Sign in to share a board with a partner.
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant={selectMode ? 'primary' : 'secondary'}
+            onClick={() => {
+              setSelectMode((v) => !v)
+              if (selectMode) clearSelection()
+            }}
+          >
+            {selectMode ? (
+              <CheckSquare className="h-4 w-4" />
+            ) : (
+              <Square className="h-4 w-4" />
+            )}
+            Select
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setShareOpen(true)}
+            title="Share list"
+          >
+            <Share2 className="h-4 w-4" />
+            Share
+          </Button>
+          <Button variant="honey" onClick={openNewPlace}>
+            <Plus className="h-4 w-4" />
+            Add place
+          </Button>
+        </div>
       </header>
+
+      <PendingInvitesBanner collab={collab} />
+
+      {selectMode ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-line bg-folio/90 px-4 py-3">
+          <p className="text-sm font-bold text-ink">
+            {selectedIds.length} selected
+          </p>
+          <Button type="button" variant="secondary" onClick={selectAllVisible}>
+            Select all shown
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setSelectedIds(allPlaces.map((p) => p.id))}
+          >
+            Select full list
+          </Button>
+          <Button type="button" variant="ghost" onClick={clearSelection}>
+            Clear
+          </Button>
+          <Button
+            type="button"
+            variant="honey"
+            className="ml-auto"
+            onClick={() => setShareOpen(true)}
+            disabled={selectedIds.length === 0 && allPlaces.length === 0}
+          >
+            <Share2 className="h-4 w-4" />
+            Share selected
+          </Button>
+        </div>
+      ) : null}
 
       <section className="rounded-[1.75rem] border border-line bg-panel p-4 shadow-[var(--shadow-soft)] md:p-6">
         <div className="flex flex-wrap items-center gap-2 border-b border-line pb-4">
@@ -539,7 +597,8 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                       aria-checked={petsOnly}
                       onClick={() => setPetsOnly((v) => !v)}
                       className={cn(
-                        'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold transition',
+                        'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold',
+                        motion.chip,
                         petsOnly
                           ? 'border-sea bg-sea text-white'
                           : 'border-line bg-panel text-ink hover:border-sea',
@@ -548,12 +607,14 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                       <span
                         className={cn(
                           'inline-flex h-5 w-9 items-center rounded-full px-0.5',
+                          motion.color,
                           petsOnly ? 'bg-white/25' : 'bg-line',
                         )}
                       >
                         <span
                           className={cn(
-                            'h-4 w-4 rounded-full bg-white transition',
+                            'h-4 w-4 rounded-full bg-white',
+                            motion.transform,
                             petsOnly ? 'translate-x-4' : 'translate-x-0',
                           )}
                         />
@@ -562,7 +623,7 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                     </button>
                     <p className="text-sm text-ink-soft">
                       <span className="font-bold text-ink">{listPlaces.length}</span> of{' '}
-                      {app.places.length} places
+                      {allPlaces.length} places
                       {hasActiveFilters ? ' match filters' : ''}
                     </p>
                   </div>
@@ -572,7 +633,7 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                   <div className="mt-4">
                     <p className="text-sm font-bold text-ink">City</p>
                     <p className="mt-0.5 text-xs text-ink-soft">
-                      From locations on your saved places. Tap one or more.
+                      From cities on your saved places. Tap one or more.
                     </p>
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       <button
@@ -580,7 +641,8 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                         onClick={() => setCityKeys([])}
                         aria-pressed={!cityFilterActive}
                         className={cn(
-                          'h-10 rounded-full border px-3.5 text-sm font-bold transition',
+                          'h-10 rounded-full border px-3.5 text-sm font-bold',
+                          motion.chip,
                           !cityFilterActive
                             ? 'border-sea bg-sea text-white shadow-[var(--shadow-soft)]'
                             : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
@@ -597,7 +659,8 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                             onClick={() => toggleCity(city.key)}
                             aria-pressed={on}
                             className={cn(
-                              'h-10 rounded-full border px-3.5 text-sm font-bold transition',
+                              'h-10 rounded-full border px-3.5 text-sm font-bold',
+                              motion.chip,
                               on
                                 ? 'border-sea bg-sea text-white shadow-[var(--shadow-soft)]'
                                 : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
@@ -619,39 +682,6 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                   </div>
                 ) : null}
 
-                {monthlyBounds || listBounds ? (
-                  <div
-                    className={cn(
-                      'mt-4 grid gap-3',
-                      monthlyBounds && listBounds ? 'lg:grid-cols-2' : 'grid-cols-1',
-                    )}
-                  >
-                    {monthlyBounds ? (
-                      <DualRangeSlider
-                        label="Rent"
-                        min={monthlyBounds.min}
-                        max={monthlyBounds.max}
-                        step={monthlyBounds.step}
-                        valueMin={monthlySelection?.min ?? monthlyBounds.min}
-                        valueMax={monthlySelection?.max ?? monthlyBounds.max}
-                        onChange={setMonthlyRange}
-                        formatValue={(n) => `${formatMoney(n)}/mo`}
-                      />
-                    ) : null}
-                    {listBounds ? (
-                      <DualRangeSlider
-                        label="List price"
-                        min={listBounds.min}
-                        max={listBounds.max}
-                        step={listBounds.step}
-                        valueMin={listSelection?.min ?? listBounds.min}
-                        valueMax={listSelection?.max ?? listBounds.max}
-                        onChange={setListRange}
-                      />
-                    ) : null}
-                  </div>
-                ) : null}
-
                 {(hasActiveFilters || listSort !== 'featured') && (
                   <div className="mt-3 flex justify-end">
                     <Button variant="ghost" onClick={clearAllFilters}>
@@ -662,7 +692,7 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
               </div>
 
               {listPlaces.length === 0 ? (
-                app.places.length === 0 ? (
+                allPlaces.length === 0 ? (
                   <EmptyPlaces onAdd={openNewPlace} />
                 ) : (
                   <div className="rounded-2xl border border-dashed border-line bg-folio/60 px-6 py-10 text-center">
@@ -670,14 +700,14 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                       No places match these filters
                     </p>
                     <p className="mt-2 text-ink-soft">
-                      Widen price ranges, pick more cities, turn off pets-only, or reset.
+                      Pick more cities, turn off pets-only, or reset filters.
                     </p>
                     <Button
                       className="mt-4"
                       variant="secondary"
                       onClick={() => {
                         setPetsOnly(false)
-                        clearPriceFilters()
+                        setCityKeys([])
                       }}
                     >
                       Clear filters
@@ -692,6 +722,9 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                       place={place}
                       moveBudget={moveBudget}
                       selected={compareIds.includes(place.id)}
+                      selectMode={selectMode}
+                      checked={selectedIds.includes(place.id)}
+                      onToggleSelect={() => toggleSelect(place.id)}
                       onOpenImages={openLightbox}
                       onToggleCompare={() =>
                         setCompareIds((ids) =>
@@ -701,16 +734,19 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                         )
                       }
                       onFavorite={() =>
-                        app.upsertPlace({
+                        persistPlace({
                           ...place,
                           favorite: !place.favorite,
                           updatedAt: new Date().toISOString(),
                         })
                       }
                       onEdit={() => startEdit(place)}
-                      onDelete={() => {
-                        if (confirm('Remove this saved place?')) app.removePlace(place.id)
-                      }}
+                      onDelete={() =>
+                        setDeleteTarget({
+                          id: place.id,
+                          title: place.title || 'Untitled place',
+                        })
+                      }
                     />
                   ))}
                 </div>
@@ -728,7 +764,8 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                     aria-checked={petsOnly}
                     onClick={() => setPetsOnly((v) => !v)}
                     className={cn(
-                      'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold transition',
+                      'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold',
+                      motion.chip,
                       petsOnly
                         ? 'border-sea bg-sea text-white'
                         : 'border-line bg-panel text-ink hover:border-sea',
@@ -737,12 +774,14 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                     <span
                       className={cn(
                         'inline-flex h-5 w-9 items-center rounded-full px-0.5',
+                        motion.color,
                         petsOnly ? 'bg-white/25' : 'bg-line',
                       )}
                     >
                       <span
                         className={cn(
-                          'h-4 w-4 rounded-full bg-white transition',
+                          'h-4 w-4 rounded-full bg-white',
+                          motion.transform,
                           petsOnly ? 'translate-x-4' : 'translate-x-0',
                         )}
                       />
@@ -763,7 +802,8 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                       onClick={() => setCityKeys([])}
                       aria-pressed={!cityFilterActive}
                       className={cn(
-                        'h-9 rounded-full border px-3 text-sm font-bold transition',
+                        'h-9 rounded-full border px-3 text-sm font-bold',
+                        motion.chip,
                         !cityFilterActive
                           ? 'border-sea bg-sea text-white'
                           : 'border-line bg-panel text-ink hover:border-sea',
@@ -780,7 +820,8 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                           onClick={() => toggleCity(city.key)}
                           aria-pressed={on}
                           className={cn(
-                            'h-9 rounded-full border px-3 text-sm font-bold transition',
+                            'h-9 rounded-full border px-3 text-sm font-bold',
+                            motion.chip,
                             on
                               ? 'border-sea bg-sea text-white'
                               : 'border-line bg-panel text-ink hover:border-sea',
@@ -827,7 +868,10 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                           return (
                             <div
                               key={place.id}
-                              className="w-52 shrink-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-soft)] transition hover:border-sea"
+                              className={cn(
+                                'w-52 shrink-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-soft)] hover:border-sea',
+                                motion.color,
+                              )}
                             >
                               {images[0] ? (
                                 <OpenableImage
@@ -875,7 +919,7 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
             ) : (
               <div className="grid gap-4 md:grid-cols-3">
                 {compareIds.map((id) => {
-                  const place = app.places.find((p) => p.id === id)
+                  const place = allPlaces.find((p) => p.id === id)
                   if (!place) return null
                   const images = placeImages(place)
                   const overBudget =
@@ -1015,13 +1059,90 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                             }
                           />
                         </Field>
-                        <Field label="Location" className="sm:col-span-2">
+                        <Field label="Street address" className="sm:col-span-2">
                           <TextInput
-                            value={form.location}
+                            value={form.street}
+                            autoComplete="street-address"
                             onChange={(e) =>
-                              setForm((f) => ({ ...f, location: e.target.value }))
+                              setForm((f) => ({ ...f, street: e.target.value }))
                             }
-                            placeholder="City, neighborhood, or ZIP"
+                            onBlur={() =>
+                              setForm((f) => ({
+                                ...f,
+                                street: sanitizeStreet(f.street),
+                              }))
+                            }
+                            onPaste={(e) => {
+                              const text = e.clipboardData.getData('text')
+                              if (!text.includes(',')) return
+                              e.preventDefault()
+                              const parsed = parseLocationString(text)
+                              setForm((f) => ({
+                                ...f,
+                                street: parsed.street || f.street,
+                                city: parsed.city || f.city,
+                                state: parsed.state || f.state,
+                                zip: parsed.zip || f.zip,
+                              }))
+                            }}
+                            placeholder="123 Main St, Unit 4"
+                          />
+                          <span className="mt-1 text-xs text-ink-soft">
+                            Paste a full listing address here to auto-fill city, state,
+                            and ZIP.
+                          </span>
+                        </Field>
+                        <Field label="City" className="sm:col-span-2">
+                          <CityCombobox
+                            value={form.city}
+                            onChange={(city) => setForm((f) => ({ ...f, city }))}
+                            extraSuggestions={savedCityNames}
+                            placeholder="Pembroke Pines"
+                          />
+                        </Field>
+                        <Field label="State">
+                          <TextInput
+                            value={form.state}
+                            autoComplete="address-level1"
+                            maxLength={2}
+                            className="uppercase"
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                state: e.target.value
+                                  .toUpperCase()
+                                  .replace(/[^A-Z]/g, '')
+                                  .slice(0, 2),
+                              }))
+                            }
+                            onBlur={() =>
+                              setForm((f) => ({
+                                ...f,
+                                state: sanitizeState(f.state),
+                              }))
+                            }
+                            placeholder="FL"
+                          />
+                        </Field>
+                        <Field label="ZIP">
+                          <TextInput
+                            value={form.zip}
+                            autoComplete="postal-code"
+                            inputMode="numeric"
+                            maxLength={10}
+                            onChange={(e) =>
+                              setForm((f) => ({
+                                ...f,
+                                zip: e.target.value.replace(/[^\d-]/g, '').slice(0, 10),
+                              }))
+                            }
+                            onBlur={() =>
+                              setForm((f) => ({
+                                ...f,
+                                zip: sanitizeZip(f.zip),
+                              }))
+                            }
+                            placeholder="33026"
                           />
                         </Field>
                       </div>
@@ -1126,13 +1247,15 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                               )
                             }
                             className={cn(
-                              'inline-flex h-8 w-14 shrink-0 items-center rounded-full px-1 transition',
+                              'inline-flex h-8 w-14 shrink-0 items-center rounded-full px-1',
+                              motion.color,
                               form.pets !== 'no' ? 'bg-sea' : 'bg-line',
                             )}
                           >
                             <span
                               className={cn(
-                                'h-6 w-6 rounded-full bg-white shadow-sm transition',
+                                'h-6 w-6 rounded-full bg-white shadow-sm',
+                                motion.transform,
                                 form.pets !== 'no' ? 'translate-x-6' : 'translate-x-0',
                               )}
                             />
@@ -1185,7 +1308,7 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                     <FormSection>
                       <Field
                         label="Photos"
-                        hint="Paste image URLs. First photo is the primary image."
+                        hint="Paste image URLs. Star a photo to make it the main thumbnail, or drag photos to reorder."
                       >
                         <div className="flex gap-2">
                           <TextInput
@@ -1210,43 +1333,12 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
                           </Button>
                         </div>
                       </Field>
-                      {form.images.length > 0 ? (
-                        <ul className="mt-3 grid grid-cols-2 gap-3">
-                          {form.images.map((url, index) => (
-                            <li
-                              key={`${url}-${index}`}
-                              className="relative overflow-hidden rounded-xl border border-line bg-folio"
-                            >
-                              <OpenableImage
-                                images={form.images}
-                                index={index}
-                                title={form.title || 'Saved place'}
-                                onOpen={openLightbox}
-                                className="h-28 w-full"
-                                imgClassName="h-28"
-                              />
-                              <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-                                <span className="truncate text-xs text-ink-soft">
-                                  {index === 0 ? 'Primary' : `Photo ${index + 1}`}
-                                </span>
-                                <button
-                                  type="button"
-                                  className="shrink-0 rounded-full p-1 text-ink-soft hover:bg-panel hover:text-ink"
-                                  aria-label="Remove photo"
-                                  onClick={() =>
-                                    setForm((f) => ({
-                                      ...f,
-                                      images: f.images.filter((_, i) => i !== index),
-                                    }))
-                                  }
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : null}
+                      <PlacePhotoEditor
+                        images={form.images}
+                        title={form.title || 'Saved place'}
+                        onOpen={openLightbox}
+                        onChange={(images) => setForm((f) => ({ ...f, images }))}
+                      />
                     </FormSection>
 
                     {/* Tags */}
@@ -1324,6 +1416,21 @@ export function PlacesWorkspace({ app }: { app: AppController }) {
           onIndexChange={(index) =>
             setLightbox((prev) => (prev ? { ...prev, index } : prev))
           }
+        />
+      ) : null}
+
+      {shareOpen ? (
+        <ShareSheet
+          collab={collab}
+          selectedPlaceIds={
+            selectMode && selectedIds.length > 0 ? selectedIds : []
+          }
+          signedIn={auth.signedIn}
+          onClose={() => setShareOpen(false)}
+          onNeedAuth={() => {
+            setShareOpen(false)
+            onOpenAccount()
+          }}
         />
       ) : null}
     </div>
@@ -1468,7 +1575,8 @@ function ChipPicker({
               onClick={() => toggle(label)}
               aria-pressed={on}
               className={cn(
-                'h-9 rounded-full border px-3 text-sm font-bold transition',
+                'h-9 rounded-full border px-3 text-sm font-bold',
+                motion.chip,
                 on &&
                   tone === 'pro' &&
                   'border-move bg-move text-white shadow-[var(--shadow-soft)]',
@@ -1502,6 +1610,9 @@ function PlaceCard({
   place,
   moveBudget,
   selected,
+  selectMode,
+  checked,
+  onToggleSelect,
   onOpenImages,
   onToggleCompare,
   onFavorite,
@@ -1511,6 +1622,9 @@ function PlaceCard({
   place: SavedPlace
   moveBudget: number | null
   selected: boolean
+  selectMode: boolean
+  checked: boolean
+  onToggleSelect: () => void
   onOpenImages: (images: string[], index: number, title?: string) => void
   onToggleCompare: () => void
   onFavorite: () => void
@@ -1525,8 +1639,28 @@ function PlaceCard({
     place.monthlyEstimate > moveBudget
 
   return (
-    <article className="overflow-hidden rounded-[1.5rem] border border-line bg-folio/40 shadow-[var(--shadow-soft)] md:flex">
+    <article
+      className={cn(
+        'overflow-hidden rounded-[1.5rem] border bg-folio/40 shadow-[var(--shadow-soft)] md:flex',
+        checked ? 'border-sea ring-2 ring-sea/30' : 'border-line',
+      )}
+    >
       <div className="relative md:w-52 md:shrink-0">
+        {selectMode ? (
+          <button
+            type="button"
+            onClick={onToggleSelect}
+            className="absolute left-2 top-2 z-10 rounded-xl bg-panel/95 p-2 shadow-[var(--shadow-soft)]"
+            aria-pressed={checked}
+            aria-label={checked ? 'Deselect place' : 'Select place'}
+          >
+            {checked ? (
+              <CheckSquare className="h-5 w-5 text-sea-deep" />
+            ) : (
+              <Square className="h-5 w-5 text-ink-soft" />
+            )}
+          </button>
+        ) : null}
         {images[0] ? (
           <OpenableImage
             images={images}
@@ -1562,18 +1696,29 @@ function PlaceCard({
             <PetsBadge pets={place.pets ?? 'no'} note={place.petsNote} className="mt-2" />
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant={place.favorite ? 'honey' : 'secondary'} onClick={onFavorite}>
-              <Heart className={cn('h-4 w-4', place.favorite && 'fill-current')} />
-            </Button>
-            <Button variant={selected ? 'primary' : 'secondary'} onClick={onToggleCompare}>
-              Compare
-            </Button>
-            <Button variant="secondary" onClick={onEdit}>
-              Edit
-            </Button>
-            <Button variant="ghost" onClick={onDelete}>
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {selectMode ? (
+              <Button
+                variant={checked ? 'primary' : 'secondary'}
+                onClick={onToggleSelect}
+              >
+                {checked ? 'Selected' : 'Select'}
+              </Button>
+            ) : (
+              <>
+                <Button variant={place.favorite ? 'honey' : 'secondary'} onClick={onFavorite}>
+                  <Heart className={cn('h-4 w-4', place.favorite && 'fill-current')} />
+                </Button>
+                <Button variant={selected ? 'primary' : 'secondary'} onClick={onToggleCompare}>
+                  Compare
+                </Button>
+                <Button variant="secondary" onClick={onEdit}>
+                  Edit
+                </Button>
+                <Button variant="ghost" onClick={onDelete}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
 
 export interface ImageLightboxProps {
@@ -50,7 +51,10 @@ export function ImageLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col bg-ink/90 p-3 sm:p-5"
+      className={cn(
+        'fixed inset-0 z-[100] flex flex-col bg-ink/90 p-3 sm:p-5',
+        motion.overlay,
+      )}
       role="dialog"
       aria-modal="true"
       aria-label={title ? `Photos of ${title}` : 'Photo gallery'}
@@ -76,7 +80,10 @@ export function ImageLightbox({
         <button
           type="button"
           onClick={onClose}
-          className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white transition hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+          className={cn(
+            'inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white',
+            motion.interactive,
+          )}
           aria-label="Close gallery"
         >
           <X className="h-6 w-6" />
@@ -92,7 +99,10 @@ export function ImageLightbox({
             <button
               type="button"
               onClick={() => go(-1)}
-              className="absolute left-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm transition hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:left-2 sm:h-14 sm:w-14"
+              className={cn(
+                'absolute left-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:left-2 sm:h-14 sm:w-14',
+                motion.interactive,
+              )}
               aria-label="Previous photo"
             >
               <ChevronLeft className="h-7 w-7" />
@@ -100,7 +110,10 @@ export function ImageLightbox({
             <button
               type="button"
               onClick={() => go(1)}
-              className="absolute right-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm transition hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:right-2 sm:h-14 sm:w-14"
+              className={cn(
+                'absolute right-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:right-2 sm:h-14 sm:w-14',
+                motion.interactive,
+              )}
               aria-label="Next photo"
             >
               <ChevronRight className="h-7 w-7" />
@@ -110,9 +123,13 @@ export function ImageLightbox({
 
         <div className="flex h-full max-h-[min(78vh,900px)] w-full items-center justify-center px-12 sm:px-16">
           <img
+            key={current}
             src={current}
             alt={title ? `${title} photo ${safeIndex + 1}` : `Photo ${safeIndex + 1}`}
-            className="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
+            className={cn(
+              'max-h-full max-w-full rounded-xl object-contain shadow-2xl',
+              motion.dialog,
+            )}
             referrerPolicy="no-referrer"
           />
         </div>
@@ -131,7 +148,8 @@ export function ImageLightbox({
               aria-label={`Show photo ${i + 1}`}
               aria-current={i === safeIndex}
               className={cn(
-                'h-14 w-20 shrink-0 overflow-hidden rounded-lg border-2 transition sm:h-16 sm:w-24',
+                'h-14 w-20 shrink-0 overflow-hidden rounded-lg border-2 sm:h-16 sm:w-24',
+                motion.chip,
                 i === safeIndex
                   ? 'border-honey ring-2 ring-honey/40'
                   : 'border-transparent opacity-70 hover:opacity-100',
@@ -216,10 +234,7 @@ export function OpenableImage({
       <img
         src={url}
         alt={alt}
-        className={cn(
-          'h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]',
-          imgClassName,
-        )}
+        className={cn('h-full w-full object-cover motion-hover-zoom', imgClassName)}
         loading="lazy"
         referrerPolicy="no-referrer"
         onError={(e) => {
@@ -236,8 +251,8 @@ export function OpenableImage({
           }
         }}
       />
-      <span className="pointer-events-none absolute inset-0 bg-ink/0 transition group-hover:bg-ink/20 group-focus-visible:bg-ink/15" />
-      <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-0.5 text-xs font-bold text-white opacity-0 transition group-hover:opacity-100 group-focus-visible:opacity-100">
+      <span className="pointer-events-none absolute inset-0 bg-ink/0 motion-hover-veil group-hover:bg-ink/20 group-focus-visible:bg-ink/15" />
+      <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-0.5 text-xs font-bold text-white opacity-0 motion-hover-veil group-hover:opacity-100 group-focus-visible:opacity-100">
         Expand
       </span>
     </button>

@@ -1,3 +1,4 @@
+import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
 
 interface Option<T extends string> {
@@ -42,7 +43,8 @@ export function ChoiceGroup<T extends string>({
               type="button"
               onClick={() => onChange(option.value)}
               className={cn(
-                'rounded-xl border text-center font-bold transition',
+                'rounded-xl border text-center font-bold',
+                motion.chip,
                 size === 'compact' && 'h-11 px-2 text-sm',
                 size === 'default' && 'h-12 px-3 text-sm sm:text-base',
                 selected

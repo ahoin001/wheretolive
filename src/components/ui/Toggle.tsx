@@ -1,3 +1,4 @@
+import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
 
 export function Toggle({
@@ -17,17 +18,22 @@ export function Toggle({
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}
-      className="flex w-full items-start gap-4 rounded-2xl border border-line bg-panel p-4 text-left hover:border-sea"
+      className={cn(
+        'flex w-full items-start gap-4 rounded-2xl border border-line bg-panel p-4 text-left hover:border-sea',
+        motion.color,
+      )}
     >
       <span
         className={cn(
-          'mt-1 inline-flex h-7 w-12 shrink-0 items-center rounded-full px-1 transition',
+          'mt-1 inline-flex h-7 w-12 shrink-0 items-center rounded-full px-1',
+          motion.color,
           checked ? 'bg-sea' : 'bg-line',
         )}
       >
         <span
           className={cn(
-            'h-5 w-5 rounded-full bg-white transition',
+            'h-5 w-5 rounded-full bg-white',
+            motion.transform,
             checked ? 'translate-x-5' : 'translate-x-0',
           )}
         />

@@ -169,6 +169,10 @@ export function useApp() {
     }))
   }, [updateData])
 
+  const replacePlaces = useCallback((places: SavedPlace[]) => {
+    updateData((prev) => ({ ...prev, places }))
+  }, [updateData])
+
   const eraseAll = useCallback(async () => {
     await localAppRepo.clear()
     setData(emptyAppData())
@@ -227,6 +231,7 @@ export function useApp() {
     setMode,
     upsertPlace,
     removePlace,
+    replacePlaces,
     eraseAll,
     exportData,
     importData,

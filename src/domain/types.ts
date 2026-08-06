@@ -198,6 +198,18 @@ export interface SavedPlace {
   price: number | null
   /** Monthly rent when listingKind is rent; null for buy listings */
   monthlyEstimate: number | null
+  /** Street line (number, street, unit) */
+  street: string
+  /** City only — used for filters */
+  city: string
+  /** US state code, e.g. FL */
+  state: string
+  /** ZIP or ZIP+4 */
+  zip: string
+  /**
+   * Display line rebuilt from street/city/state/zip on save.
+   * Kept for older data and compact UI strings.
+   */
   location: string
   bedrooms: number | null
   bathrooms: number | null
@@ -213,7 +225,7 @@ export interface SavedPlace {
   tier: PlaceTier
   status: PlaceStatus
   favorite: boolean
-  /** One or more photo URLs (first is primary) */
+  /** One or more photo URLs (index 0 is the main thumbnail) */
   images: string[]
   tags: string[]
 }

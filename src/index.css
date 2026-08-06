@@ -20,6 +20,15 @@
 
   --shadow-soft: 0 10px 30px rgba(28, 43, 42, 0.08);
   --shadow-lift: 0 16px 40px rgba(28, 43, 42, 0.12);
+
+  /* Motion tokens — calm kitchen-table UI, not marketing bounce */
+  --ease-snappy: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-settle: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-press: 130ms;
+  --duration-fast: 160ms;
+  --duration-ui: 200ms;
+  --duration-panel: 280ms;
 }
 
 @layer base {
@@ -47,17 +56,29 @@
     outline-offset: 3px;
   }
 
+  /* Reduced motion: keep short color/opacity feedback; drop displacement */
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
     }
 
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
+    .motion-interactive:active:not(:disabled),
+    .motion-chip:active:not(:disabled),
+    .motion-press:active:not(:disabled) {
+      transform: none;
+    }
+
+    .motion-step-enter,
+    .motion-overlay,
+    .motion-dialog {
+      animation: motion-fade-in var(--duration-fast) ease both !important;
+    }
+
+    .motion-transform,
+    .motion-interactive,
+    .motion-chip {
+      transition-property: color, background-color, border-color, opacity, box-shadow !important;
+      transition-duration: var(--duration-fast) !important;
     }
   }
 }
@@ -69,6 +90,124 @@
 
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* --- Motion system (pair with src/lib/motion.ts) --- */
+
+  .motion-color {
+    transition-property: color, background-color, border-color, box-shadow, opacity,
+      filter, text-decoration-color;
+    transition-duration: var(--duration-ui);
+    transition-timing-function: var(--ease-snappy);
+  }
+
+  .motion-transform {
+    transition-property: transform, opacity;
+    transition-duration: var(--duration-ui);
+    transition-timing-function: var(--ease-snappy);
+  }
+
+  .motion-interactive {
+    transition-property: transform, color, background-color, border-color, box-shadow,
+      opacity, filter;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-snappy);
+  }
+
+  .motion-interactive:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .motion-chip {
+    transition-property: transform, color, background-color, border-color, box-shadow,
+      opacity;
+    transition-duration: var(--duration-fast);
+    transition-timing-function: var(--ease-snappy);
+  }
+
+  .motion-chip:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .motion-press {
+    transition-property: transform;
+    transition-duration: var(--duration-press);
+    transition-timing-function: var(--ease-snappy);
+  }
+
+  .motion-press:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  @keyframes motion-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes motion-step-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes motion-overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes motion-dialog-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  .motion-step-enter {
+    animation: motion-step-in var(--duration-panel) var(--ease-snappy) both;
+  }
+
+  .motion-overlay {
+    animation: motion-overlay-in var(--duration-panel) var(--ease-sheet) both;
+  }
+
+  .motion-dialog {
+    animation: motion-dialog-in var(--duration-panel) var(--ease-snappy) both;
+  }
+
+  /* Pointer-fine hovers only — avoid sticky :hover on touch */
+  @media (hover: hover) and (pointer: fine) {
+    .motion-hover-zoom {
+      transition-property: transform;
+      transition-duration: var(--duration-ui);
+      transition-timing-function: var(--ease-snappy);
+    }
+
+    .group:hover .motion-hover-zoom {
+      transform: scale(1.03);
+    }
+
+    .motion-hover-veil {
+      transition-property: background-color, opacity;
+      transition-duration: var(--duration-ui);
+      transition-timing-function: var(--ease-snappy);
+    }
   }
 
   /* Dual range thumbs share one track; pointer-events only on the thumb */

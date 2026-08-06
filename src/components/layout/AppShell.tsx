@@ -6,8 +6,11 @@ import {
   Download,
   Trash2,
   Upload,
+  UserRound,
 } from 'lucide-react'
 import type { AppController } from '../../hooks/useApp'
+import type { AuthController } from '../../hooks/useAuth'
+import type { CollaborationController } from '../../hooks/useCollaboration'
 import type { WizardStepId } from '../../domain/types'
 import { formatMoney } from '../../domain/finance/calculations'
 import { Button } from '../ui/Button'
@@ -26,13 +29,26 @@ const STEP_META: { id: WizardStepId; label: string; short: string }[] = [
 
 export function AppShell({
   app,
+  auth,
+  collab,
+  accountOpen,
+  onAccountOpenChange,
   children,
 }: {
   app: AppController
+  auth: AuthController
+  collab: CollaborationController
+  accountOpen: boolean
+  onAccountOpenChange: (open: boolean) => void
   children: React.ReactNode
 }) {
   const { ui, finance, stepIndex, steps } = app
   const showNav = Boolean(app.scenario) && ui.activeStep !== 'welcome'
+  const subtitle = auth.signedIn
+    ? collab.cloudActive
+      ? 'Signed in · places can be shared'
+      : 'Signed in · saving on this device'
+    : 'A calm keep-or-downsize companion · saved on this device'
 
   return (
     <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-4 px-4 py-4 md:px-6 md:py-6">
@@ -41,9 +57,7 @@ export function AppShell({
           <p className="font-display text-2xl font-semibold tracking-[-0.02em] text-ink md:text-3xl">
             Room for the Next Chapter
           </p>
-          <p className="text-sm text-ink-soft">
-            A calm keep-or-downsize companion · saved on this device
-          </p>
+          <p className="text-sm text-ink-soft">{subtitle}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button
@@ -61,6 +75,23 @@ export function AppShell({
           >
             <Bookmark className="h-4 w-4" />
             Places
+            {collab.pendingInvites.length > 0 ? (
+              <span className="ml-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-honey px-1.5 text-xs text-white">
+                {collab.pendingInvites.length}
+              </span>
+            ) : null}
+          </Button>
+          <Button
+            variant={accountOpen ? 'primary' : 'secondary'}
+            onClick={() => onAccountOpenChange(!accountOpen)}
+            title={auth.signedIn ? 'Account settings' : 'Sign in'}
+          >
+            <UserRound className="h-4 w-4" />
+            <span className="sr-only md:not-sr-only">
+              {auth.signedIn
+                ? auth.profile?.displayName || 'Account'
+                : 'Sign in'}
+            </span>
           </Button>
           <Button variant="ghost" onClick={() => void app.exportData()} title="Export backup">
             <Download className="h-4 w-4" />

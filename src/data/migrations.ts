@@ -7,6 +7,10 @@ import {
   type PlaceTier,
   type SavedPlace,
 } from '../domain/types'
+import {
+  formatPlaceAddress,
+  resolvePlaceAddress,
+} from '../domain/places/address'
 import { createExampleScenario } from './exampleScenario'
 
 export function emptyAppData(): AppData {
@@ -88,7 +92,22 @@ function normalizePlace(raw: unknown): SavedPlace | null {
       p.monthlyEstimate != null && p.monthlyEstimate !== ''
         ? Number(p.monthlyEstimate)
         : null,
-    location: typeof p.location === 'string' ? p.location : '',
+    ...(() => {
+      const addr = resolvePlaceAddress({
+        street: p.street,
+        city: p.city,
+        state: p.state,
+        zip: p.zip,
+        location: p.location,
+      })
+      return {
+        street: addr.street,
+        city: addr.city,
+        state: addr.state,
+        zip: addr.zip,
+        location: formatPlaceAddress(addr),
+      }
+    })(),
     bedrooms: p.bedrooms != null && p.bedrooms !== '' ? Number(p.bedrooms) : null,
     bathrooms:
       p.bathrooms != null && p.bathrooms !== '' ? Number(p.bathrooms) : null,
