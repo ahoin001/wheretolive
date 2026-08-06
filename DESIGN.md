@@ -23,32 +23,28 @@ Household planning folio for a kitchen-table conversation: mist surfaces, sea-gl
 
 Calm kitchen-table UI — feedback over flair. No marketing bounce.
 
-### Tokens (`src/index.css` `@theme`)
+### Stack
+
+1. **CSS tokens** (`src/index.css` + `src/lib/motion.ts` as `cssMotion`) for pressable controls, chips, hover.
+2. **Motion library** (`motion/react`) for interruptible enter/exit: step pages, dialogs, lightbox, toggle spring.
+3. **Presets** in `src/lib/motionPresets.ts` (snappy spring, panel tween, dialog never from scale 0).
+4. Root `<MotionConfig reducedMotion="user" />` in `main.tsx`.
+
+### Tokens (`@theme`)
 
 | Token | Value | Use |
 | --- | --- | --- |
 | `--ease-snappy` | `cubic-bezier(0.23, 1, 0.32, 1)` | UI enter / feedback |
-| `--ease-settle` | `cubic-bezier(0.77, 0, 0.175, 1)` | On-screen morphs |
-| `--ease-sheet` | `cubic-bezier(0.32, 0.72, 0, 1)` | Overlays / scrims |
+| `--ease-sheet` | `cubic-bezier(0.32, 0.72, 0, 1)` | Overlays |
 | `--duration-press` | `130ms` | Active scale |
 | `--duration-fast` | `160ms` | Buttons, chips |
-| `--duration-ui` | `200ms` | Color / toggles |
-| `--duration-panel` | `280ms` | Step enter, lightbox |
-
-### Classes (`src/lib/motion.ts`)
-
-- `motion.interactive` — pressable controls (`scale(0.97)` on `:active`)
-- `motion.chip` — filter chips / step nav tabs
-- `motion.color` / `motion.transform` — property-scoped transitions (never `transition: all`)
-- `motion.stepEnter` — guide step / mode panel enter (opacity + 8px rise)
-- `motion.overlay` / `motion.dialog` — lightbox open (dialog starts at `scale(0.97)`, not 0)
+| `--duration-panel` | `280ms` | Step / panel changes |
 
 ### Rules
 
-- Prefer CSS transitions over keyframes for repeated toggles.
-- Gate hover zoom/veil behind `@media (hover: hover) and (pointer: fine)`.
-- `prefers-reduced-motion`: keep short opacity/color feedback; drop displacement and press-scale.
-- Sticky step footer and finance stats remain the primary continuous feedback.
+- Prefer CSS for high-frequency hover/press; Motion for occasional open/close and springs.
+- Gate hover zoom behind fine-pointer media query.
+- Reduced motion: opacity-only page/dialog; drop displacement.
 
 ## Voice
 

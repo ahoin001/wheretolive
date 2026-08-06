@@ -22,6 +22,7 @@ import {
   sanitizeZip,
 } from '../../domain/places/address'
 import { formatMoney } from '../../domain/finance/calculations'
+import { AnimatePresence } from 'motion/react'
 import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
 import { Button, ButtonLink } from '../ui/Button'
@@ -153,9 +154,39 @@ function placeImages(place: SavedPlace): string[] {
   return Array.isArray(place.images) ? place.images.filter(Boolean) : []
 }
 
-function sortByFavoriteThenRecent(a: SavedPlace, b: SavedPlace): number {
-  if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+function isLikedByMe(place: SavedPlace): boolean {
+  return Boolean(place.likedByMe ?? place.favorite)
+}
+
+function isMutualLike(place: SavedPlace): boolean {
+  const ids = place.likedByUserIds ?? place.likedBy?.map((l) => l.userId) ?? []
+  return ids.length >= 2
+}
+
+function sortByLikedThenRecent(a: SavedPlace, b: SavedPlace): number {
+  const aLike = isLikedByMe(a)
+  const bLike = isLikedByMe(b)
+  if (aLike !== bLike) return aLike ? -1 : 1
   return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+}
+
+/** Short label for shared boards: your like / partner / both. */
+function mutualLikeLabel(
+  place: SavedPlace,
+  currentUserId: string | undefined,
+): string | null {
+  const likers =
+    place.likedBy && place.likedBy.length
+      ? place.likedBy
+      : (place.likedByUserIds ?? []).map((userId) => ({
+          userId,
+          displayName: 'Someone',
+        }))
+  if (!likers.length) return null
+  if (likers.length >= 2) return 'Liked by both'
+  const only = likers[0]!
+  if (currentUserId && only.userId === currentUserId) return 'Liked by you'
+  return `Liked by ${only.displayName || 'partner'}`
 }
 
 type ListSort =
@@ -211,10 +242,12 @@ function sortPlaces(
   sort: ListSort,
   petsOnly: boolean,
   cityKeys: string[],
+  mutualOnly: boolean,
 ): SavedPlace[] {
   let next = places.filter((p) => {
     if (petsOnly && !allowsPets(p)) return false
     if (!placeMatchesCities(p, cityKeys)) return false
+    if (mutualOnly && !isMutualLike(p)) return false
     return true
   })
 
@@ -236,8 +269,7 @@ function sortPlaces(
     if (sort === 'list_desc') {
       return byMissingLast(listPrice(a), -1) - byMissingLast(listPrice(b), -1)
     }
-    if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
-    return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+    return sortByLikedThenRecent(a, b)
   })
 
   return next
@@ -262,6 +294,7 @@ export function PlacesWorkspace({
   const [formOpen, setFormOpen] = useState(false)
   const [listSort, setListSort] = useState<ListSort>('featured')
   const [petsOnly, setPetsOnly] = useState(false)
+  const [mutualOnly, setMutualOnly] = useState(false)
   const [cityKeys, setCityKeys] = useState<string[]>([])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -339,25 +372,43 @@ export function PlacesWorkspace({
   }, [cityKeys, availableCities])
 
   const listPlaces = useMemo(() => {
-    return sortPlaces(allPlaces, listSort, petsOnly, activeCityKeys)
-  }, [allPlaces, listSort, petsOnly, activeCityKeys])
+    return sortPlaces(allPlaces, listSort, petsOnly, activeCityKeys, mutualOnly)
+  }, [allPlaces, listSort, petsOnly, activeCityKeys, mutualOnly])
 
   const boardPlaces = useMemo(() => {
     let base = allPlaces
     if (petsOnly) base = base.filter(allowsPets)
+    if (mutualOnly) base = base.filter(isMutualLike)
     if (activeCityKeys.length) {
       base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
     }
-    return [...base].sort(sortByFavoriteThenRecent)
-  }, [allPlaces, petsOnly, activeCityKeys])
+    return [...base].sort(sortByLikedThenRecent)
+  }, [allPlaces, petsOnly, mutualOnly, activeCityKeys])
 
   const cityFilterActive = activeCityKeys.length > 0
-  const hasActiveFilters = petsOnly || cityFilterActive
+  const hasActiveFilters = petsOnly || mutualOnly || cityFilterActive
 
   const clearAllFilters = () => {
     setListSort('featured')
     setPetsOnly(false)
+    setMutualOnly(false)
     setCityKeys([])
+  }
+
+  const toggleLike = (place: SavedPlace) => {
+    const nextLiked = !isLikedByMe(place)
+    if (collab.cloudActive) {
+      void collab.setLiked(place.id, nextLiked).catch((e) => {
+        alert(e instanceof Error ? e.message : 'Could not update like.')
+      })
+      return
+    }
+    persistPlace({
+      ...place,
+      favorite: nextLiked,
+      likedByMe: nextLiked,
+      updatedAt: new Date().toISOString(),
+    })
   }
 
   const toggleCity = (key: string) => {
@@ -465,9 +516,7 @@ export function PlacesWorkspace({
               <Users className="h-4 w-4" />
               <span>
                 {collab.activeList.name}
-                {collab.members.filter((m) => m.status === 'accepted').length > 1
-                  ? ' · shared board'
-                  : ''}
+                {collab.isSharedList ? ' · shared board · hearts are personal' : ' · your list'}
               </span>
               {collab.lists.length > 1 ? (
                 <select
@@ -486,7 +535,7 @@ export function PlacesWorkspace({
             </p>
           ) : (
             <p className="mt-1 text-sm text-ink-soft">
-              Save listings here. Sign in to share a board with a partner.
+              Saved to your account on this list. Places stay private until you share.
             </p>
           )}
         </div>
@@ -521,6 +570,38 @@ export function PlacesWorkspace({
       </header>
 
       <PendingInvitesBanner collab={collab} />
+
+      {collab.guestImport ? (
+        <div className="rounded-[1.5rem] border border-honey/40 bg-honey-soft/80 p-4 md:p-5">
+          <p className="font-display text-xl font-semibold text-ink">
+            Import guest places?
+          </p>
+          <p className="mt-1 text-sm text-ink-soft">
+            This device has {collab.guestImport.placeCount} place
+            {collab.guestImport.placeCount === 1 ? '' : 's'} saved while signed out.
+            Import them into your private account list, or leave them only as guest data on
+            this device.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="honey"
+              disabled={collab.busy}
+              onClick={() => void collab.acceptGuestImport()}
+            >
+              Import into my list
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={collab.busy}
+              onClick={() => collab.declineGuestImport()}
+            >
+              Keep separate
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       {selectMode ? (
         <div className="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-line bg-folio/90 px-4 py-3">
@@ -583,7 +664,7 @@ export function PlacesWorkspace({
                       onChange={(e) => setListSort(e.target.value as ListSort)}
                       className="min-h-11 rounded-2xl border border-line bg-panel px-4 text-base text-ink"
                     >
-                      <option value="featured">Favorites & recent first</option>
+                      <option value="featured">Liked by me & recent first</option>
                       <option value="monthly_asc">Rent · low to high</option>
                       <option value="monthly_desc">Rent · high to low</option>
                       <option value="list_asc">List price · low to high</option>
@@ -621,6 +702,26 @@ export function PlacesWorkspace({
                       </span>
                       Pets allowed
                     </button>
+                    {collab.isSharedList ? (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={mutualOnly}
+                        onClick={() => setMutualOnly((v) => !v)}
+                        className={cn(
+                          'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold',
+                          motion.chip,
+                          mutualOnly
+                            ? 'border-honey bg-honey text-white'
+                            : 'border-line bg-panel text-ink hover:border-sea',
+                        )}
+                      >
+                        <Heart
+                          className={cn('h-4 w-4', mutualOnly && 'fill-current')}
+                        />
+                        Mutual likes
+                      </button>
+                    ) : null}
                     <p className="text-sm text-ink-soft">
                       <span className="font-bold text-ink">{listPlaces.length}</span> of{' '}
                       {allPlaces.length} places
@@ -707,6 +808,7 @@ export function PlacesWorkspace({
                       variant="secondary"
                       onClick={() => {
                         setPetsOnly(false)
+                        setMutualOnly(false)
                         setCityKeys([])
                       }}
                     >
@@ -733,12 +835,11 @@ export function PlacesWorkspace({
                             : [...ids, place.id].slice(0, 3),
                         )
                       }
-                      onFavorite={() =>
-                        persistPlace({
-                          ...place,
-                          favorite: !place.favorite,
-                          updatedAt: new Date().toISOString(),
-                        })
+                      onFavorite={() => toggleLike(place)}
+                      likeLabel={
+                        collab.isSharedList
+                          ? mutualLikeLabel(place, auth.user?.id)
+                          : null
                       }
                       onEdit={() => startEdit(place)}
                       onDelete={() =>
@@ -1419,17 +1520,20 @@ export function PlacesWorkspace({
           )
         : null}
 
-      {lightbox ? (
-        <ImageLightbox
-          images={lightbox.images}
-          index={lightbox.index}
-          title={lightbox.title}
-          onClose={() => setLightbox(null)}
-          onIndexChange={(index) =>
-            setLightbox((prev) => (prev ? { ...prev, index } : prev))
-          }
-        />
-      ) : null}
+      <AnimatePresence>
+        {lightbox ? (
+          <ImageLightbox
+            key="place-lightbox"
+            images={lightbox.images}
+            index={lightbox.index}
+            title={lightbox.title}
+            onClose={() => setLightbox(null)}
+            onIndexChange={(index) =>
+              setLightbox((prev) => (prev ? { ...prev, index } : prev))
+            }
+          />
+        ) : null}
+      </AnimatePresence>
 
       {shareOpen ? (
         <ShareSheet
@@ -1437,12 +1541,7 @@ export function PlacesWorkspace({
           selectedPlaceIds={
             selectMode && selectedIds.length > 0 ? selectedIds : []
           }
-          signedIn={auth.signedIn}
           onClose={() => setShareOpen(false)}
-          onNeedAuth={() => {
-            setShareOpen(false)
-            onOpenAccount()
-          }}
         />
       ) : null}
 
@@ -1644,6 +1743,7 @@ function PlaceCard({
   selected,
   selectMode,
   checked,
+  likeLabel,
   onToggleSelect,
   onOpenImages,
   onToggleCompare,
@@ -1656,6 +1756,7 @@ function PlaceCard({
   selected: boolean
   selectMode: boolean
   checked: boolean
+  likeLabel?: string | null
   onToggleSelect: () => void
   onOpenImages: (images: string[], index: number, title?: string) => void
   onToggleCompare: () => void
@@ -1664,6 +1765,7 @@ function PlaceCard({
   onDelete: () => void
 }) {
   const images = placeImages(place)
+  const liked = isLikedByMe(place)
   const over =
     place.listingKind === 'rent' &&
     moveBudget != null &&
@@ -1726,6 +1828,12 @@ function PlaceCard({
             </h3>
             <p className="mt-1 text-ink-soft">{place.location || 'Location not set'}</p>
             <PetsBadge pets={place.pets ?? 'no'} note={place.petsNote} className="mt-2" />
+            {likeLabel ? (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-honey-soft px-2.5 py-1 text-xs font-bold text-ink">
+                <Heart className="h-3.5 w-3.5 fill-honey text-honey" />
+                {likeLabel}
+              </p>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             {selectMode ? (
@@ -1737,8 +1845,13 @@ function PlaceCard({
               </Button>
             ) : (
               <>
-                <Button variant={place.favorite ? 'honey' : 'secondary'} onClick={onFavorite}>
-                  <Heart className={cn('h-4 w-4', place.favorite && 'fill-current')} />
+                <Button
+                  variant={liked ? 'honey' : 'secondary'}
+                  onClick={onFavorite}
+                  aria-pressed={liked}
+                  aria-label={liked ? 'Unlike place' : 'Like place'}
+                >
+                  <Heart className={cn('h-4 w-4', liked && 'fill-current')} />
                 </Button>
                 <Button variant={selected ? 'primary' : 'secondary'} onClick={onToggleCompare}>
                   Compare

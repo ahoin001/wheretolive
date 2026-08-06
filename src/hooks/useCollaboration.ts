@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import type { SavedPlace } from '../domain/types'
+import { localAppRepo } from '../data/repositories'
 import {
   bootstrapUser,
   deleteCloudPlace,
@@ -11,13 +12,15 @@ import {
   migrateLocalPlaces,
   removeMember,
   respondInvite,
+  setPlaceLike,
   sharePlaces,
   upsertCloudPlace,
 } from '../data/collaboration/api'
 import type { ListMember, PlaceListSummary } from '../data/collaboration/types'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
 
-const MIGRATE_FLAG = 'next-chapter.migrated-places.v1'
+/** One-time decision flag: guest import offered+answered for this user on this browser */
+const GUEST_IMPORT_FLAG = 'next-chapter.guest-import-decided.v1'
 
 export function useCollaboration({
   user,
@@ -26,7 +29,7 @@ export function useCollaboration({
 }: {
   user: User | null
   localPlaces: SavedPlace[]
-  /** When cloud is active we still mirror places into local cache for offline backup */
+  /** Mirror of active list into the signed-in user's identity-scoped local cache */
   replaceLocalPlaces: (places: SavedPlace[]) => void
 }) {
   const [lists, setLists] = useState<PlaceListSummary[]>([])
@@ -37,7 +40,9 @@ export function useCollaboration({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cloudActive, setCloudActive] = useState(false)
-  const migrateOnce = useRef(false)
+  const [guestImport, setGuestImport] = useState<{
+    placeCount: number
+  } | null>(null)
 
   const acceptedLists = useMemo(
     () => lists.filter((l) => l.status === 'accepted'),
@@ -52,6 +57,12 @@ export function useCollaboration({
     () => acceptedLists.find((l) => l.id === activeListId) ?? null,
     [acceptedLists, activeListId],
   )
+
+  const isSharedList = useMemo(() => {
+    if (!activeList) return false
+    // Shared if more than one accepted member on the open list
+    return members.filter((m) => m.status === 'accepted').length > 1
+  }, [activeList, members])
 
   const refreshLists = useCallback(async () => {
     const next = await getMyLists()
@@ -76,6 +87,25 @@ export function useCollaboration({
     }
   }, [])
 
+  const maybeOfferGuestImport = useCallback(async (userId: string) => {
+    const flagKey = `${GUEST_IMPORT_FLAG}:${userId}`
+    if (localStorage.getItem(flagKey)) {
+      setGuestImport(null)
+      return
+    }
+    try {
+      const guestPlaces = await localAppRepo.peekGuestPlaces()
+      if (guestPlaces.length > 0) {
+        setGuestImport({ placeCount: guestPlaces.length })
+      } else {
+        setGuestImport(null)
+        localStorage.setItem(flagKey, new Date().toISOString())
+      }
+    } catch {
+      setGuestImport(null)
+    }
+  }, [])
+
   const refreshAll = useCallback(async () => {
     if (!user || !isSupabaseConfigured) return
     setBusy(true)
@@ -94,7 +124,11 @@ export function useCollaboration({
       if (listId) {
         const cloudPlaces = await loadPlaces(listId)
         await loadMembers(listId)
+        // Mirror only into this user's scoped cache (never into guest)
         replaceLocalPlaces(cloudPlaces)
+      } else {
+        setPlaces([])
+        replaceLocalPlaces([])
       }
       setCloudActive(true)
     } catch (e) {
@@ -113,7 +147,7 @@ export function useCollaboration({
     replaceLocalPlaces,
   ])
 
-  // Login → bootstrap, migrate local once, load
+  // Login → bootstrap + load this account only (no silent cross-account migrate)
   useEffect(() => {
     if (!user || !isSupabaseConfigured) {
       setCloudActive(false)
@@ -121,8 +155,9 @@ export function useCollaboration({
       setPlaces([])
       setMembers([])
       setActiveListId(null)
+      setGuestImport(null)
       setReady(true)
-      migrateOnce.current = false
+      // Do NOT touch local places — guest workspace is separate and restored by useApp
       return
     }
 
@@ -131,33 +166,53 @@ export function useCollaboration({
       setReady(false)
       try {
         await bootstrapUser()
-        const flagKey = `${MIGRATE_FLAG}:${user.id}`
-        if (!migrateOnce.current && !localStorage.getItem(flagKey) && localPlaces.length) {
-          await migrateLocalPlaces(localPlaces)
-          localStorage.setItem(flagKey, new Date().toISOString())
-        }
-        migrateOnce.current = true
         if (cancelled) return
-        await refreshAll()
+        // Clear active list so we pick this user's default (not previous session)
+        setActiveListId(null)
+        const nextLists = await getMyLists()
+        if (cancelled) return
+        setLists(nextLists)
+        const accepted = nextLists.filter((l) => l.status === 'accepted')
+        const defaultList =
+          accepted.find((l) => l.isDefault) ?? accepted[0] ?? null
+        const listId = defaultList?.id ?? null
+        setActiveListId(listId)
+        if (listId) {
+          const cloudPlaces = await getListPlaces(listId)
+          if (cancelled) return
+          setPlaces(cloudPlaces)
+          replaceLocalPlaces(cloudPlaces)
+          await loadMembers(listId)
+        } else {
+          setPlaces([])
+          replaceLocalPlaces([])
+        }
+        setCloudActive(true)
+        if (!cancelled) await maybeOfferGuestImport(user.id)
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Cloud sync failed.')
-          setReady(true)
+          setCloudActive(false)
         }
+      } finally {
+        if (!cancelled) setReady(true)
       }
     })()
 
     return () => {
       cancelled = true
     }
-    // only re-run on user change; localPlaces snapshot at login is intentional
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
-  // Realtime places + membership changes
+  // Realtime places + membership + reactions
   useEffect(() => {
     if (!user || !supabase || !activeListId || !cloudActive) return
     const client = supabase
+
+    const reload = () => {
+      void loadPlaces(activeListId).then((next) => replaceLocalPlaces(next))
+    }
 
     const channel = client
       .channel(`nc-list-${activeListId}`)
@@ -169,9 +224,16 @@ export function useCollaboration({
           table: 'places',
           filter: `list_id=eq.${activeListId}`,
         },
-        () => {
-          void loadPlaces(activeListId).then((next) => replaceLocalPlaces(next))
+        reload,
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'app_next_chapter_v1',
+          table: 'place_reactions',
         },
+        reload,
       )
       .on(
         'postgres_changes',
@@ -274,6 +336,23 @@ export function useCollaboration({
     [cloudActive, replaceLocalPlaces],
   )
 
+  const setLiked = useCallback(
+    async (placeId: string, liked: boolean) => {
+      if (!cloudActive) {
+        // Guest / local: toggle favorite on the place in local state via caller
+        return
+      }
+      const saved = await setPlaceLike(placeId, liked)
+      setPlaces((prev) => {
+        const next = prev.map((p) => (p.id === saved.id ? saved : p))
+        replaceLocalPlaces(next)
+        return next
+      })
+      return saved
+    },
+    [cloudActive, replaceLocalPlaces],
+  )
+
   const inviteUser = useCallback(
     async (userId: string, placeIds: string[]) => {
       if (!activeListId) throw new Error('No active list.')
@@ -330,6 +409,53 @@ export function useCollaboration({
     [refreshLists, loadMembers, activeListId],
   )
 
+  const acceptGuestImport = useCallback(async () => {
+    if (!user) return
+    setBusy(true)
+    setError(null)
+    try {
+      const guestPlaces = await localAppRepo.peekGuestPlaces()
+      if (guestPlaces.length) {
+        await migrateLocalPlaces(guestPlaces)
+      }
+      localStorage.setItem(
+        `${GUEST_IMPORT_FLAG}:${user.id}`,
+        new Date().toISOString(),
+      )
+      setGuestImport(null)
+
+      const nextLists = await getMyLists()
+      setLists(nextLists)
+      const accepted = nextLists.filter((l) => l.status === 'accepted')
+      const defaultList =
+        accepted.find((l) => l.isDefault) ?? accepted[0] ?? null
+      const listId = defaultList?.id ?? null
+      setActiveListId(listId)
+      if (listId) {
+        const cloudPlaces = await getListPlaces(listId)
+        setPlaces(cloudPlaces)
+        replaceLocalPlaces(cloudPlaces)
+        await loadMembers(listId)
+      }
+      setCloudActive(true)
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : 'Could not import guest places.',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [user, replaceLocalPlaces, loadMembers])
+
+  const declineGuestImport = useCallback(() => {
+    if (!user) return
+    localStorage.setItem(
+      `${GUEST_IMPORT_FLAG}:${user.id}`,
+      new Date().toISOString(),
+    )
+    setGuestImport(null)
+  }, [user])
+
   return {
     ready,
     busy,
@@ -341,9 +467,14 @@ export function useCollaboration({
     activeList,
     places: cloudActive ? places : localPlaces,
     members,
+    isSharedList,
+    guestImport,
+    acceptGuestImport,
+    declineGuestImport,
     selectList,
     upsertPlace,
     removePlace,
+    setLiked,
     inviteUser,
     acceptInvite,
     declineInvite,

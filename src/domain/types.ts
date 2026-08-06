@@ -50,13 +50,9 @@ export type PathLean = 'keep' | 'downsize' | 'mixed'
 
 export type WizardStepId =
   | 'welcome'
-  | 'household'
-  | 'today'
-  | 'paths'
-  | 'peace'
-  | 'easier'
-  | 'talk'
-  | 'summary'
+  | 'stay'
+  | 'move'
+  | 'picture'
 
 export type PlaceTier = 'dream' | 'strong' | 'maybe' | 'pass'
 export type PlaceStatus = 'none' | 'visited' | 'offer'
@@ -183,8 +179,27 @@ export interface FinanceBreakdown {
   cashAfterMoveMid: number
   fiveYearStay: number
   fiveYearMove: number
+  /** One-time cash leaving when you move (deposit + closing + moving) */
+  moveOneTimeTotal: number
   stayParts: Record<string, number>
   moveParts: Record<string, number>
+}
+
+/** Sale-to-cash step for waterfall chart */
+export interface SaleWaterfallStep {
+  id: string
+  label: string
+  /** Signed amount: value positive, reductions negative, final cash positive */
+  amount: number
+  running: number
+  kind: 'in' | 'out' | 'total'
+}
+
+export interface CumulativeYearPoint {
+  year: number
+  label: string
+  keep: number
+  move: number
 }
 
 export interface SavedPlace {
@@ -224,7 +239,17 @@ export interface SavedPlace {
   concernTags: string[]
   tier: PlaceTier
   status: PlaceStatus
+  /**
+   * Liked-by-me (local favorite or personal reaction when cloud).
+   * On shared lists this is per-user, not a shared board field.
+   */
   favorite: boolean
+  /** Explicit personal like when present (mirrors favorite on cloud loads) */
+  likedByMe?: boolean
+  /** User ids who liked this place (shared lists) */
+  likedByUserIds?: string[]
+  /** Display names aligned with likedByUserIds when available */
+  likedBy?: { userId: string; displayName: string }[]
   /** One or more photo URLs (index 0 is the main thumbnail) */
   images: string[]
   tags: string[]

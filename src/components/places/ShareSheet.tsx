@@ -10,15 +10,11 @@ import { Field, TextInput } from '../ui/Field'
 export function ShareSheet({
   collab,
   selectedPlaceIds,
-  signedIn,
   onClose,
-  onNeedAuth,
 }: {
   collab: CollaborationController
   selectedPlaceIds: string[]
-  signedIn: boolean
   onClose: () => void
-  onNeedAuth: () => void
 }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProfileSearchResult[]>([])
@@ -32,7 +28,6 @@ export function ShareSheet({
   } | null>(null)
 
   useEffect(() => {
-    if (!signedIn) return
     const q = query.trim()
     if (q.length < 2) {
       setResults([])
@@ -48,15 +43,14 @@ export function ShareSheet({
         .finally(() => setSearching(false))
     }, 280)
     return () => window.clearTimeout(handle)
-  }, [query, signedIn])
+  }, [query])
 
   useEffect(() => {
-    if (signedIn && collab.activeListId) {
+    if (collab.activeListId) {
       void collab.loadMembers(collab.activeListId)
     }
-    // loadMembers is stable enough; only re-fetch when list changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signedIn, collab.activeListId])
+  }, [collab.activeListId])
 
   const shareCount =
     selectedPlaceIds.length > 0 ? selectedPlaceIds.length : collab.places.length
@@ -99,8 +93,8 @@ export function ShareSheet({
             </h2>
             <p className="mt-1 text-sm text-ink-soft">
               {selectedPlaceIds.length > 0
-                ? `Invite someone to collaborate on ${shareCount} selected place${shareCount === 1 ? '' : 's'}.`
-                : `Invite someone to the full list (${shareCount} place${shareCount === 1 ? '' : 's'}). Both of you can edit freely.`}
+                ? `Invite someone to collaborate on ${shareCount} selected place${shareCount === 1 ? '' : 's'}. Hearts stay personal for each person.`
+                : `Invite someone to the full list (${shareCount} place${shareCount === 1 ? '' : 's'}). Both can edit the board; likes remain individual.`}
             </p>
           </div>
           <Button type="button" variant="ghost" onClick={onClose} aria-label="Close">
@@ -108,121 +102,108 @@ export function ShareSheet({
           </Button>
         </div>
 
-        {!signedIn ? (
-          <div className="mt-5 rounded-2xl border border-line bg-folio/70 p-4">
-            <p className="text-sm text-ink-soft">
-              Sign in to invite partners by email or display name.
-            </p>
-            <Button className="mt-3" type="button" onClick={onNeedAuth}>
-              Sign in to share
-            </Button>
-          </div>
-        ) : (
-          <>
-            {collab.activeList ? (
-              <p className="mt-3 text-sm text-ink-soft">
-                List:{' '}
-                <span className="font-bold text-ink">{collab.activeList.name}</span>
-                {collab.activeList.role === 'owner' ? ' · you are owner' : ' · editor'}
-              </p>
-            ) : null}
+        {collab.activeList ? (
+          <p className="mt-3 text-sm text-ink-soft">
+            List:{' '}
+            <span className="font-bold text-ink">{collab.activeList.name}</span>
+            {collab.activeList.role === 'owner' ? ' · you are owner' : ' · editor'}
+          </p>
+        ) : null}
 
-            <div className="mt-5">
-              <Field
-                label="Find someone"
-                hint="Exact email, or the start of their display name"
-              >
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
-                  <TextInput
-                    className="pl-10"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder="name or email@example.com"
-                    autoFocus
-                  />
-                </div>
-              </Field>
-              {searching ? (
-                <p className="mt-2 text-sm text-ink-soft">Searching…</p>
-              ) : null}
-              {results.length > 0 ? (
-                <ul className="mt-3 space-y-2">
-                  {results.map((person) => (
-                    <li
-                      key={person.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-folio/50 px-3 py-2.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-ink">
-                          {person.display_name || 'Unnamed'}
-                        </p>
-                        <p className="truncate text-sm text-ink-soft">
-                          {person.email || 'No email listed'}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="honey"
-                        disabled={busyId === person.id}
-                        onClick={() => void invite(person.id)}
-                      >
-                        <Share2 className="h-4 w-4" />
-                        {busyId === person.id ? '…' : 'Invite'}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : query.trim().length >= 2 && !searching ? (
-                <p className="mt-2 text-sm text-ink-soft">
-                  No matches. They need an account and discoverability on in their profile.
-                </p>
-              ) : null}
+        <div className="mt-5">
+          <Field
+            label="Find someone"
+            hint="Exact email, or the start of their display name"
+          >
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
+              <TextInput
+                className="pl-10"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="name or email@example.com"
+                autoFocus
+              />
             </div>
+          </Field>
+          {searching ? (
+            <p className="mt-2 text-sm text-ink-soft">Searching…</p>
+          ) : null}
+          {results.length > 0 ? (
+            <ul className="mt-3 space-y-2">
+              {results.map((person) => (
+                <li
+                  key={person.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-folio/50 px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-ink">
+                      {person.display_name || 'Unnamed'}
+                    </p>
+                    <p className="truncate text-sm text-ink-soft">
+                      {person.email || 'No email listed'}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="honey"
+                    disabled={busyId === person.id}
+                    onClick={() => void invite(person.id)}
+                  >
+                    <Share2 className="h-4 w-4" />
+                    {busyId === person.id ? '…' : 'Invite'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : query.trim().length >= 2 && !searching ? (
+            <p className="mt-2 text-sm text-ink-soft">
+              No matches. They need an account and discoverability on in their profile.
+            </p>
+          ) : null}
+        </div>
 
-            <section className="mt-6">
-              <h3 className="text-sm font-bold text-ink">People on this list</h3>
-              <ul className="mt-2 space-y-2">
-                {collab.members.length === 0 ? (
-                  <li className="text-sm text-ink-soft">Only you so far.</li>
-                ) : (
-                  collab.members.map((m) => (
-                    <li
-                      key={m.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-line px-3 py-2.5"
+        <section className="mt-6">
+          <h3 className="text-sm font-bold text-ink">People on this list</h3>
+          <ul className="mt-2 space-y-2">
+            {collab.members.length === 0 ? (
+              <li className="text-sm text-ink-soft">Only you so far.</li>
+            ) : (
+              collab.members.map((m) => (
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-line px-3 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-ink">
+                      {m.displayName || m.email || 'Member'}
+                    </p>
+                    <p className="text-sm text-ink-soft">
+                      {m.role}
+                      {m.status === 'pending' ? ' · pending invite' : ''}
+                    </p>
+                  </div>
+                  {m.role !== 'owner' && collab.activeList?.role === 'owner' ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() =>
+                        setRemoveMember({
+                          id: m.id,
+                          name: m.displayName || m.email || 'this person',
+                        })
+                      }
+                      title="Remove"
+                      aria-label={`Remove ${m.displayName || m.email || 'member'}`}
                     >
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-ink">
-                          {m.displayName || m.email || 'Member'}
-                        </p>
-                        <p className="text-sm text-ink-soft">
-                          {m.role}
-                          {m.status === 'pending' ? ' · pending invite' : ''}
-                        </p>
-                      </div>
-                      {m.role !== 'owner' && collab.activeList?.role === 'owner' ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() =>
-                            setRemoveMember({
-                              id: m.id,
-                              name: m.displayName || m.email || 'this person',
-                            })
-                          }
-                          title="Remove"
-                          aria-label={`Remove ${m.displayName || m.email || 'member'}`}
-                        >
-                          <UserMinus className="h-4 w-4" />
-                        </Button>
-                      ) : null}
-                    </li>
-                  ))
-                )}
-              </ul>
-            </section>
-          </>
-        )}
+                      <UserMinus className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </li>
+              ))
+            )}
+          </ul>
+        </section>
 
         {error ? (
           <p className="mt-4 rounded-xl bg-honey-soft px-3 py-2 text-sm text-ink">

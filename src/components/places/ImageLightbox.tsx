@@ -1,6 +1,12 @@
 import { useEffect, useCallback } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
-import { motion } from '../../lib/motion'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { cssMotion } from '../../lib/motion'
+import {
+  lightboxImageVariants,
+  overlayVariants,
+  springSnappy,
+} from '../../lib/motionPresets'
 import { cn } from '../../lib/utils'
 
 export interface ImageLightboxProps {
@@ -21,6 +27,7 @@ export function ImageLightbox({
   const total = images.length
   const safeIndex = total > 0 ? ((index % total) + total) % total : 0
   const current = total > 0 ? images[safeIndex] : ''
+  const reduce = useReducedMotion()
 
   const go = useCallback(
     (delta: number) => {
@@ -50,14 +57,15 @@ export function ImageLightbox({
   if (total === 0 || !current) return null
 
   return (
-    <div
-      className={cn(
-        'fixed inset-0 z-[100] flex flex-col bg-ink/90 p-3 sm:p-5',
-        motion.overlay,
-      )}
+    <motion.div
+      className="fixed inset-0 z-[100] flex flex-col bg-ink/90 p-3 sm:p-5"
       role="dialog"
       aria-modal="true"
       aria-label={title ? `Photos of ${title}` : 'Photo gallery'}
+      variants={overlayVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
       onClick={onClose}
     >
       <div
@@ -82,7 +90,7 @@ export function ImageLightbox({
           onClick={onClose}
           className={cn(
             'inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white',
-            motion.interactive,
+            cssMotion.interactive,
           )}
           aria-label="Close gallery"
         >
@@ -101,7 +109,7 @@ export function ImageLightbox({
               onClick={() => go(-1)}
               className={cn(
                 'absolute left-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:left-2 sm:h-14 sm:w-14',
-                motion.interactive,
+                cssMotion.interactive,
               )}
               aria-label="Previous photo"
             >
@@ -112,7 +120,7 @@ export function ImageLightbox({
               onClick={() => go(1)}
               className={cn(
                 'absolute right-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:right-2 sm:h-14 sm:w-14',
-                motion.interactive,
+                cssMotion.interactive,
               )}
               aria-label="Next photo"
             >
@@ -121,17 +129,21 @@ export function ImageLightbox({
           </>
         ) : null}
 
-        <div className="flex h-full max-h-[min(78vh,900px)] w-full items-center justify-center px-12 sm:px-16">
-          <img
-            key={current}
-            src={current}
-            alt={title ? `${title} photo ${safeIndex + 1}` : `Photo ${safeIndex + 1}`}
-            className={cn(
-              'max-h-full max-w-full rounded-xl object-contain shadow-2xl',
-              motion.dialog,
-            )}
-            referrerPolicy="no-referrer"
-          />
+        <div className="relative flex h-full max-h-[min(78vh,900px)] w-full items-center justify-center px-12 sm:px-16">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.img
+              key={current}
+              src={current}
+              alt={title ? `${title} photo ${safeIndex + 1}` : `Photo ${safeIndex + 1}`}
+              className="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
+              variants={reduce ? undefined : lightboxImageVariants}
+              initial={reduce ? { opacity: 0 } : 'enter'}
+              animate={reduce ? { opacity: 1 } : 'center'}
+              exit={reduce ? { opacity: 0 } : 'exit'}
+              transition={reduce ? { duration: 0.12 } : springSnappy}
+              referrerPolicy="no-referrer"
+            />
+          </AnimatePresence>
         </div>
       </div>
 
@@ -149,7 +161,7 @@ export function ImageLightbox({
               aria-current={i === safeIndex}
               className={cn(
                 'h-14 w-20 shrink-0 overflow-hidden rounded-lg border-2 sm:h-16 sm:w-24',
-                motion.chip,
+                cssMotion.chip,
                 i === safeIndex
                   ? 'border-honey ring-2 ring-honey/40'
                   : 'border-transparent opacity-70 hover:opacity-100',
@@ -189,7 +201,7 @@ export function ImageLightbox({
           </button>
         </div>
       ) : null}
-    </div>
+    </motion.div>
   )
 }
 

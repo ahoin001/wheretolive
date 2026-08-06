@@ -14,6 +14,10 @@ A calm, reusable keep-versus-downsize planning companion. Built first for a late
 4. Save future-home links, notes, and tiers.
 5. Stay private on-device in v1, with a repository rail for Supabase later.
 
+## Data path
+
+`AppData` is the persistence envelope (scenario + places + ui). Household answers live only under `Scenario.household`. Loads and imports always run through `migrateAppData` → `normalizeScenario` so readiness UI never sees broken enums or missing owners.
+
 ## Non-goals
 
 - Not financial, tax, legal, or real-estate advice.

@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localAppRepo } from '../data/repositories'
 import {
   emptyAppData,
-  migrateAppData,
   seedExampleAppData,
 } from '../data/migrations'
 import { createBlankScenario } from '../data/exampleScenario'
@@ -15,50 +14,53 @@ import type {
   WizardStepId,
 } from '../domain/types'
 
-const STEP_ORDER: WizardStepId[] = [
-  'welcome',
-  'household',
-  'today',
-  'paths',
-  'peace',
-  'easier',
-  'talk',
-  'summary',
-]
+const STEP_ORDER: WizardStepId[] = ['welcome', 'stay', 'move', 'picture']
 
-export function useApp() {
+/**
+ * App data is identity-scoped in localStorage (guest vs user:<id>).
+ * Pass auth ready + workspaceUserId so we never load/save the wrong bag.
+ */
+export function useApp(workspaceUserId: string | null, authReady: boolean) {
   const [data, setData] = useState<AppData>(emptyAppData())
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [workspaceKey, setWorkspaceKey] = useState<string>('')
+  const savingPaused = useRef(true)
 
   useEffect(() => {
+    if (!authReady) return
     let cancelled = false
+    savingPaused.current = true
+    setReady(false)
     ;(async () => {
       try {
-        const loaded = await localAppRepo.load()
-        if (!cancelled) {
-          setData(migrateAppData(loaded))
-          setReady(true)
-        }
+        const loaded = await localAppRepo.switchWorkspace(workspaceUserId)
+        if (cancelled) return
+        setData(loaded)
+        setWorkspaceKey(localAppRepo.activeKey)
+        setReady(true)
+        savingPaused.current = false
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : 'Could not load saved data.')
+          setData(emptyAppData())
           setReady(true)
+          savingPaused.current = false
         }
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authReady, workspaceUserId])
 
   useEffect(() => {
-    if (!ready) return
+    if (!ready || savingPaused.current || !workspaceKey) return
     const id = window.setTimeout(() => {
       void localAppRepo.save(data)
     }, 250)
     return () => window.clearTimeout(id)
-  }, [data, ready])
+  }, [data, ready, workspaceKey])
 
   const updateData = useCallback((updater: (prev: AppData) => AppData) => {
     setData((prev) => updater(prev))
@@ -73,7 +75,7 @@ export function useApp() {
       ...emptyAppData(),
       scenario: createBlankScenario(),
       ui: {
-        activeStep: 'household',
+        activeStep: 'stay',
         mode: 'guide',
         completedSteps: ['welcome'],
       },
@@ -105,15 +107,13 @@ export function useApp() {
   )
 
   const goToStep = useCallback((step: WizardStepId) => {
+    // Free navigation does not invent "completed" — only Continue does that.
     updateData((prev) => ({
       ...prev,
       ui: {
         ...prev.ui,
         mode: 'guide',
         activeStep: step,
-        completedSteps: prev.ui.completedSteps.includes(step)
-          ? prev.ui.completedSteps
-          : [...prev.ui.completedSteps, step],
       },
     }))
   }, [updateData])
@@ -174,7 +174,7 @@ export function useApp() {
   }, [updateData])
 
   const eraseAll = useCallback(async () => {
-    await localAppRepo.clear()
+    await localAppRepo.clearActive()
     setData(emptyAppData())
   }, [])
 
@@ -221,6 +221,8 @@ export function useApp() {
     readiness,
     steps: STEP_ORDER,
     stepIndex,
+    workspaceUserId,
+    isGuestWorkspace: workspaceUserId == null,
     startExample,
     startFresh,
     setScenario,

@@ -15,6 +15,24 @@ function asArray<T>(value: unknown): T[] {
   return []
 }
 
+function normalizeLikedBy(
+  raw: unknown,
+): { userId: string; displayName: string }[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((row) => {
+      if (!row || typeof row !== 'object') return null
+      const r = row as Record<string, unknown>
+      const userId = String(r.userId ?? r.user_id ?? '')
+      if (!userId) return null
+      return {
+        userId,
+        displayName: String(r.displayName ?? r.display_name ?? 'Someone'),
+      }
+    })
+    .filter((x): x is { userId: string; displayName: string } => Boolean(x))
+}
+
 function normalizePlace(raw: Record<string, unknown>): SavedPlace {
   const addr = resolvePlaceAddress({
     street: raw.street,
@@ -23,6 +41,15 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
     zip: raw.zip,
     location: raw.location,
   })
+  const likedBy = normalizeLikedBy(raw.likedBy)
+  const likedByUserIds = Array.isArray(raw.likedByUserIds)
+    ? raw.likedByUserIds.map(String)
+    : likedBy.map((l) => l.userId)
+  const likedByMe =
+    typeof raw.likedByMe === 'boolean'
+      ? raw.likedByMe
+      : Boolean(raw.favorite)
+
   return {
     id: String(raw.id ?? crypto.randomUUID()),
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
@@ -61,7 +88,10 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
       : 'maybe',
     status:
       raw.status === 'visited' || raw.status === 'offer' ? raw.status : 'none',
-    favorite: Boolean(raw.favorite),
+    favorite: likedByMe,
+    likedByMe,
+    likedByUserIds,
+    likedBy,
     images: asArray<string>(raw.images),
     tags: asArray<string>(raw.tags),
   }
@@ -69,6 +99,7 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
 
 export function placeToPayload(place: SavedPlace, listId?: string | null) {
   const addr = resolvePlaceAddress(place)
+  const likedByMe = place.likedByMe ?? place.favorite
   return {
     id: place.id,
     createdAt: place.createdAt,
@@ -88,7 +119,8 @@ export function placeToPayload(place: SavedPlace, listId?: string | null) {
     concernTags: place.concernTags,
     tier: place.tier,
     status: place.status,
-    favorite: place.favorite,
+    favorite: likedByMe,
+    likedByMe,
     images: place.images,
     tags: place.tags,
     listId: listId ?? null,
@@ -196,6 +228,19 @@ export async function removeMember(membershipId: string): Promise<void> {
     p_membership_id: membershipId,
   })
   if (error) throw error
+}
+
+export async function setPlaceLike(
+  placeId: string,
+  liked: boolean,
+): Promise<SavedPlace> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_set_place_like', {
+    p_place_id: placeId,
+    p_liked: liked,
+  })
+  if (error) throw error
+  return normalizePlace(data as Record<string, unknown>)
 }
 
 export async function migrateLocalPlaces(
