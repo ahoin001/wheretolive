@@ -3,9 +3,7 @@ import {
   ArrowRight,
   Bookmark,
   Compass,
-  Download,
   Trash2,
-  Upload,
   UserRound,
 } from 'lucide-react'
 import { useState } from 'react'
@@ -99,29 +97,6 @@ export function AppShell({
               </span>
             ) : null}
           </Button>
-          <Button variant="ghost" onClick={() => void app.exportData()} title="Export backup">
-            <Download className="h-4 w-4" />
-            <span className="sr-only md:not-sr-only">Backup</span>
-          </Button>
-          <label className="inline-flex cursor-pointer">
-            <span className="sr-only">Import backup</span>
-            <input
-              type="file"
-              accept="application/json"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0]
-                if (file) void app.importData(file)
-              }}
-            />
-            <span className={cn(
-              'inline-flex min-h-12 items-center gap-2 rounded-2xl px-5 py-3 text-ink-soft hover:bg-folio hover:text-ink',
-              cssMotion.interactive,
-            )}>
-              <Upload className="h-4 w-4" />
-              <span className="sr-only md:not-sr-only">Import</span>
-            </span>
-          </label>
         </div>
       </header>
 

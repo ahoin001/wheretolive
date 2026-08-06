@@ -246,13 +246,26 @@ export interface SavedPlace {
   favorite: boolean
   /** Explicit personal like when present (mirrors favorite on cloud loads) */
   likedByMe?: boolean
+  /**
+   * When the current user last liked this place (ISO).
+   * Used to sort “recently liked” without relying on place edits.
+   */
+  likedAt?: string | null
   /** User ids who liked this place (shared lists) */
   likedByUserIds?: string[]
-  /** Display names aligned with likedByUserIds when available */
-  likedBy?: { userId: string; displayName: string }[]
+  /** Display names + like times for shared-board “Liked by …” UI */
+  likedBy?: PlaceLiker[]
   /** One or more photo URLs (index 0 is the main thumbnail) */
   images: string[]
   tags: string[]
+}
+
+/** One person who liked a place (collaboration boards) */
+export interface PlaceLiker {
+  userId: string
+  displayName: string
+  /** When they liked (ISO); newest first when present */
+  likedAt?: string | null
 }
 
 export interface AppData {

@@ -136,9 +136,9 @@ export default function App() {
         onOpenAccount={openAccount}
         accountActive={false}
       >
-        {app.error ? (
+        {app.error || collab.error ? (
           <div className="mb-4 rounded-2xl bg-honey-soft p-4 text-ink">
-            {app.error}
+            {app.error ?? collab.error}
           </div>
         ) : null}
 

@@ -1,4 +1,4 @@
-import type { SavedPlace } from '../../domain/types'
+import type { PlaceLiker, SavedPlace } from '../../domain/types'
 import {
   formatPlaceAddress,
   resolvePlaceAddress,
@@ -15,22 +15,29 @@ function asArray<T>(value: unknown): T[] {
   return []
 }
 
-function normalizeLikedBy(
-  raw: unknown,
-): { userId: string; displayName: string }[] {
+function normalizeLikedBy(raw: unknown): PlaceLiker[] {
   if (!Array.isArray(raw)) return []
-  return raw
-    .map((row) => {
-      if (!row || typeof row !== 'object') return null
-      const r = row as Record<string, unknown>
-      const userId = String(r.userId ?? r.user_id ?? '')
-      if (!userId) return null
-      return {
-        userId,
-        displayName: String(r.displayName ?? r.display_name ?? 'Someone'),
-      }
+  const rows: PlaceLiker[] = []
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    const userId = String(r.userId ?? r.user_id ?? '')
+    if (!userId) continue
+    const likedRaw = r.likedAt ?? r.liked_at
+    let likedAt: string | null = null
+    if (typeof likedRaw === 'string' && likedRaw) likedAt = likedRaw
+    else if (likedRaw instanceof Date) likedAt = likedRaw.toISOString()
+    rows.push({
+      userId,
+      displayName: String(r.displayName ?? r.display_name ?? 'Someone'),
+      likedAt,
     })
-    .filter((x): x is { userId: string; displayName: string } => Boolean(x))
+  }
+  // Newest heart first
+  return rows.sort(
+    (a, b) =>
+      (Date.parse(b.likedAt ?? '') || 0) - (Date.parse(a.likedAt ?? '') || 0),
+  )
 }
 
 function normalizePlace(raw: Record<string, unknown>): SavedPlace {
@@ -49,6 +56,13 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
     typeof raw.likedByMe === 'boolean'
       ? raw.likedByMe
       : Boolean(raw.favorite)
+  const likedAtRaw = raw.likedAt ?? raw.liked_at
+  const likedAt =
+    typeof likedAtRaw === 'string' && likedAtRaw
+      ? likedAtRaw
+      : likedByMe
+        ? likedBy.find((l) => l.likedAt)?.likedAt ?? null
+        : null
 
   return {
     id: String(raw.id ?? crypto.randomUUID()),
@@ -90,6 +104,7 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
       raw.status === 'visited' || raw.status === 'offer' ? raw.status : 'none',
     favorite: likedByMe,
     likedByMe,
+    likedAt: likedByMe ? likedAt : null,
     likedByUserIds,
     likedBy,
     images: asArray<string>(raw.images),
@@ -140,7 +155,72 @@ export async function getMyLists(): Promise<PlaceListSummary[]> {
   const client = requireSupabase()
   const { data, error } = await client.rpc('nc_get_my_lists')
   if (error) throw error
-  return asArray<PlaceListSummary>(data)
+  return asArray<PlaceListSummary>(data).map((row) => ({
+    ...row,
+    memberCount:
+      typeof row.memberCount === 'number' ? row.memberCount : undefined,
+    placeCount: typeof row.placeCount === 'number' ? row.placeCount : undefined,
+  }))
+}
+
+export async function createList(name: string): Promise<PlaceListSummary> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_create_list', {
+    p_name: name.trim() || 'New list',
+  })
+  if (error) throw error
+  return data as PlaceListSummary
+}
+
+export async function renameList(
+  listId: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_rename_list', {
+    p_list_id: listId,
+    p_name: name,
+  })
+  if (error) throw error
+  return data as { id: string; name: string }
+}
+
+export async function deleteList(listId: string): Promise<void> {
+  const client = requireSupabase()
+  const { error } = await client.rpc('nc_delete_list', {
+    p_list_id: listId,
+  })
+  if (error) throw error
+}
+
+export async function copyPlaceToList(
+  placeId: string,
+  targetListId: string,
+): Promise<SavedPlace> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_copy_place', {
+    p_place_id: placeId,
+    p_target_list_id: targetListId,
+  })
+  if (error) throw error
+  return normalizePlace(data as Record<string, unknown>)
+}
+
+export async function copyPlacesToList(
+  placeIds: string[],
+  targetListId: string,
+): Promise<{ copied: number; targetListId: string }> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_copy_places', {
+    p_place_ids: placeIds,
+    p_target_list_id: targetListId,
+  })
+  if (error) throw error
+  const row = data as { copied?: number; targetListId?: string }
+  return {
+    copied: row.copied ?? 0,
+    targetListId: row.targetListId ?? targetListId,
+  }
 }
 
 export async function getListPlaces(listId: string): Promise<SavedPlace[]> {

@@ -2,8 +2,9 @@
  * CSS motion class tokens. Prefer these over bare Tailwind `transition`
  * so easing, duration, and reduced-motion stay consistent app-wide.
  *
- * Definitions live in `src/index.css`. For interruptible enter/exit, use
- * `motion/react` + `lib/motionPresets.ts` instead.
+ * Definitions live in `src/index.css`. For interruptible enter/exit (drawers,
+ * dialogs, page steps), use `motion/react` + `lib/motionPresets.ts` instead —
+ * CSS keyframes cannot reverse mid-flight.
  */
 export const cssMotion = {
   /** Color / border / shadow state changes (chips, tabs, hovers) */
@@ -14,7 +15,7 @@ export const cssMotion = {
   interactive: 'motion-interactive',
   /** Compact chips / pills used many times a session */
   chip: 'motion-chip',
-  /** Overlay scrim (modals, lightbox) — prefer motion/react overlays when open/close */
+  /** Overlay scrim (prefer SideDrawer / ConfirmDialog for layered UI) */
   overlay: 'motion-overlay',
   /** Centered dialog content on open */
   dialog: 'motion-dialog',

@@ -29,6 +29,7 @@
   --duration-fast: 160ms;
   --duration-ui: 200ms;
   --duration-panel: 280ms;
+  --duration-drawer: 420ms;
 }
 
 @layer base {

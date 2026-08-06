@@ -141,7 +141,7 @@ begin
   end if;
 
   return coalesce((
-    select jsonb_agg(row_to_json(t)::jsonb order by t.sort_status, t.updated_at desc)
+    select jsonb_agg(row_to_json(t)::jsonb order by t.sort_status, t."updatedAt" desc)
     from (
       select
         pl.id,

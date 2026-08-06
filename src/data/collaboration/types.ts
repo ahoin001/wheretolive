@@ -11,6 +11,15 @@ export interface PlaceListSummary {
   role: ListMemberRole
   status: ListMemberStatus
   membershipId: string
+  /** Accepted members (1 = private to you alone) */
+  memberCount?: number
+  placeCount?: number
+}
+
+/** True when someone else is already on the board, or you joined someone else's. */
+export function listIsShared(list: PlaceListSummary): boolean {
+  if (typeof list.memberCount === 'number') return list.memberCount > 1
+  return list.role !== 'owner'
 }
 
 export interface ListMember {

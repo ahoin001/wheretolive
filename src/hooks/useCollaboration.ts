@@ -4,13 +4,18 @@ import type { SavedPlace } from '../domain/types'
 import { localAppRepo } from '../data/repositories'
 import {
   bootstrapUser,
+  copyPlaceToList,
+  copyPlacesToList,
+  createList,
   deleteCloudPlace,
+  deleteList,
   getListMembers,
   getListPlaces,
   getMyLists,
   inviteToList,
   migrateLocalPlaces,
   removeMember,
+  renameList,
   respondInvite,
   setPlaceLike,
   sharePlaces,
@@ -21,6 +26,18 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase'
 
 /** One-time decision flag: guest import offered+answered for this user on this browser */
 const GUEST_IMPORT_FLAG = 'next-chapter.guest-import-decided.v1'
+
+function collabErrorMessage(e: unknown): string {
+  if (e instanceof Error && e.message) return e.message
+  if (e && typeof e === 'object') {
+    const r = e as { message?: unknown; details?: unknown; hint?: unknown }
+    const parts = [r.message, r.details, r.hint]
+      .map((x) => (typeof x === 'string' ? x.trim() : ''))
+      .filter(Boolean)
+    if (parts.length) return parts.join(' — ')
+  }
+  return 'Cloud sync failed.'
+}
 
 export function useCollaboration({
   user,
@@ -60,9 +77,20 @@ export function useCollaboration({
 
   const isSharedList = useMemo(() => {
     if (!activeList) return false
-    // Shared if more than one accepted member on the open list
+    if (typeof activeList.memberCount === 'number') {
+      return activeList.memberCount > 1
+    }
     return members.filter((m) => m.status === 'accepted').length > 1
   }, [activeList, members])
+
+  /** Lists the user can copy into (accepted + editor/owner). */
+  const editableLists = useMemo(
+    () =>
+      acceptedLists.filter(
+        (l) => l.role === 'owner' || l.role === 'editor',
+      ),
+    [acceptedLists],
+  )
 
   const refreshLists = useCallback(async () => {
     const next = await getMyLists()
@@ -132,7 +160,7 @@ export function useCollaboration({
       }
       setCloudActive(true)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not load shared lists.')
+      setError(collabErrorMessage(e))
       setCloudActive(false)
     } finally {
       setBusy(false)
@@ -191,7 +219,7 @@ export function useCollaboration({
         if (!cancelled) await maybeOfferGuestImport(user.id)
       } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Cloud sync failed.')
+          setError(collabErrorMessage(e))
           setCloudActive(false)
         }
       } finally {
@@ -336,6 +364,32 @@ export function useCollaboration({
     [cloudActive, replaceLocalPlaces],
   )
 
+  const removePlaces = useCallback(
+    async (ids: string[]) => {
+      if (!cloudActive || ids.length === 0) return { removed: 0, failed: 0 }
+      const unique = [...new Set(ids)]
+      const results = await Promise.allSettled(
+        unique.map((id) => deleteCloudPlace(id)),
+      )
+      const removedIds = unique.filter(
+        (_, i) => results[i]?.status === 'fulfilled',
+      )
+      if (removedIds.length) {
+        const drop = new Set(removedIds)
+        setPlaces((prev) => {
+          const next = prev.filter((p) => !drop.has(p.id))
+          replaceLocalPlaces(next)
+          return next
+        })
+      }
+      return {
+        removed: removedIds.length,
+        failed: unique.length - removedIds.length,
+      }
+    },
+    [cloudActive, replaceLocalPlaces],
+  )
+
   const setLiked = useCallback(
     async (placeId: string, liked: boolean) => {
       if (!cloudActive) {
@@ -409,6 +463,77 @@ export function useCollaboration({
     [refreshLists, loadMembers, activeListId],
   )
 
+  const createPlaceList = useCallback(
+    async (name: string) => {
+      const created = await createList(name)
+      const next = await refreshLists()
+      const id = created.id
+      setActiveListId(id)
+      const cloudPlaces = await loadPlaces(id)
+      await loadMembers(id)
+      replaceLocalPlaces(cloudPlaces)
+      return next.find((l) => l.id === id) ?? created
+    },
+    [refreshLists, loadPlaces, loadMembers, replaceLocalPlaces],
+  )
+
+  const renamePlaceList = useCallback(
+    async (listId: string, name: string) => {
+      await renameList(listId, name)
+      await refreshLists()
+    },
+    [refreshLists],
+  )
+
+  const deletePlaceList = useCallback(
+    async (listId: string) => {
+      await deleteList(listId)
+      const next = await refreshLists()
+      const accepted = next.filter((l) => l.status === 'accepted')
+      if (activeListId === listId) {
+        const fallback =
+          accepted.find((l) => l.isDefault) ?? accepted[0] ?? null
+        if (fallback) {
+          await selectList(fallback.id)
+        } else {
+          setActiveListId(null)
+          setPlaces([])
+          replaceLocalPlaces([])
+        }
+      }
+    },
+    [activeListId, refreshLists, selectList, replaceLocalPlaces],
+  )
+
+  const copyPlace = useCallback(
+    async (placeId: string, targetListId: string) => {
+      const saved = await copyPlaceToList(placeId, targetListId)
+      await refreshLists()
+      if (targetListId === activeListId) {
+        setPlaces((prev) => {
+          const next = [saved, ...prev.filter((p) => p.id !== saved.id)]
+          replaceLocalPlaces(next)
+          return next
+        })
+      }
+      return saved
+    },
+    [activeListId, refreshLists, replaceLocalPlaces],
+  )
+
+  const copyPlaces = useCallback(
+    async (placeIds: string[], targetListId: string) => {
+      const result = await copyPlacesToList(placeIds, targetListId)
+      await refreshLists()
+      if (targetListId === activeListId && result.copied > 0) {
+        const next = await loadPlaces(targetListId)
+        replaceLocalPlaces(next)
+      }
+      return result
+    },
+    [activeListId, refreshLists, loadPlaces, replaceLocalPlaces],
+  )
+
   const acceptGuestImport = useCallback(async () => {
     if (!user) return
     setBusy(true)
@@ -462,6 +587,7 @@ export function useCollaboration({
     error,
     cloudActive: cloudActive && Boolean(user),
     lists: acceptedLists,
+    editableLists,
     pendingInvites,
     activeListId,
     activeList,
@@ -472,8 +598,14 @@ export function useCollaboration({
     acceptGuestImport,
     declineGuestImport,
     selectList,
+    createPlaceList,
+    renamePlaceList,
+    deletePlaceList,
+    copyPlace,
+    copyPlaces,
     upsertPlace,
     removePlace,
+    removePlaces,
     setLiked,
     inviteUser,
     acceptInvite,

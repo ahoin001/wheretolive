@@ -1,21 +1,53 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+} from 'motion/react'
 import { Check, Search, Share2, UserMinus, X } from 'lucide-react'
 import type { CollaborationController } from '../../hooks/useCollaboration'
 import { searchProfiles } from '../../data/collaboration/api'
 import type { ProfileSearchResult } from '../../data/collaboration/types'
+import {
+  bottomSheetVariants,
+  overlayVariants,
+  sheetCenterVariants,
+} from '../../lib/motionPresets'
 import { Button } from '../ui/Button'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { Field, TextInput } from '../ui/Field'
+import { cn } from '../../lib/utils'
+
+function useWideScreen() {
+  const [wide, setWide] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(min-width: 640px)').matches
+      : true,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 640px)')
+    const onChange = () => setWide(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+  return wide
+}
 
 export function ShareSheet({
+  open = true,
   collab,
   selectedPlaceIds,
   onClose,
 }: {
+  open?: boolean
   collab: CollaborationController
   selectedPlaceIds: string[]
   onClose: () => void
 }) {
+  const reduce = useReducedMotion()
+  const wide = useWideScreen()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProfileSearchResult[]>([])
   const [searching, setSearching] = useState(false)
@@ -26,6 +58,29 @@ export function ShareSheet({
     id: string
     name: string
   } | null>(null)
+  const [scrollLocked, setScrollLocked] = useState(false)
+
+  useEffect(() => {
+    if (open) setScrollLocked(true)
+  }, [open])
+
+  useEffect(() => {
+    if (!scrollLocked) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [scrollLocked])
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !removeMember) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open, onClose, removeMember])
 
   useEffect(() => {
     const q = query.trim()
@@ -46,11 +101,11 @@ export function ShareSheet({
   }, [query])
 
   useEffect(() => {
-    if (collab.activeListId) {
+    if (open && collab.activeListId) {
       void collab.loadMembers(collab.activeListId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collab.activeListId])
+  }, [open, collab.activeListId])
 
   const shareCount =
     selectedPlaceIds.length > 0 ? selectedPlaceIds.length : collab.places.length
@@ -71,149 +126,184 @@ export function ShareSheet({
     }
   }
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-4 sm:items-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="share-sheet-title"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-lift)] md:p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2
-              id="share-sheet-title"
-              className="font-display text-2xl font-semibold text-ink"
-            >
-              Share places
-            </h2>
-            <p className="mt-1 text-sm text-ink-soft">
-              {selectedPlaceIds.length > 0
-                ? `Invite someone to collaborate on ${shareCount} selected place${shareCount === 1 ? '' : 's'}. Hearts stay personal for each person.`
-                : `Invite someone to the full list (${shareCount} place${shareCount === 1 ? '' : 's'}). Both can edit the board; likes remain individual.`}
-            </p>
-          </div>
-          <Button type="button" variant="ghost" onClick={onClose} aria-label="Close">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
+  if (typeof document === 'undefined') return null
 
-        {collab.activeList ? (
-          <p className="mt-3 text-sm text-ink-soft">
-            List:{' '}
-            <span className="font-bold text-ink">{collab.activeList.name}</span>
-            {collab.activeList.role === 'owner' ? ' · you are owner' : ' · editor'}
-          </p>
-        ) : null}
+  const panelVariants = wide ? sheetCenterVariants : bottomSheetVariants
 
-        <div className="mt-5">
-          <Field
-            label="Find someone"
-            hint="Exact email, or the start of their display name"
+  return createPortal(
+    <>
+      <AnimatePresence onExitComplete={() => setScrollLocked(false)}>
+        {open ? (
+          <motion.div
+            key="share-sheet"
+            className="fixed inset-0 z-[90] flex items-end justify-center p-0 sm:items-center sm:p-4"
+            role="presentation"
+            initial="hidden"
+            animate="visible"
+            exit="exit"
           >
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
-              <TextInput
-                className="pl-10"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="name or email@example.com"
-                autoFocus
+            <motion.button
+              type="button"
+              aria-label="Close"
+              className="absolute inset-0 cursor-default bg-ink/40 backdrop-blur-[3px]"
+              variants={overlayVariants}
+              onClick={onClose}
+            />
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="share-sheet-title"
+              className={cn(
+                'relative z-10 max-h-[92vh] w-full max-w-lg overflow-y-auto border border-line bg-panel p-5 shadow-[var(--shadow-lift)] md:p-6',
+                'rounded-t-[1.75rem] sm:rounded-[1.75rem]',
+              )}
+              variants={reduce ? undefined : panelVariants}
+              initial={reduce ? { opacity: 0 } : 'hidden'}
+              animate={reduce ? { opacity: 1 } : 'visible'}
+              exit={reduce ? { opacity: 0 } : 'exit'}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="mx-auto mb-3 h-1 w-10 rounded-full bg-line sm:hidden"
+                aria-hidden
               />
-            </div>
-          </Field>
-          {searching ? (
-            <p className="mt-2 text-sm text-ink-soft">Searching…</p>
-          ) : null}
-          {results.length > 0 ? (
-            <ul className="mt-3 space-y-2">
-              {results.map((person) => (
-                <li
-                  key={person.id}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-folio/50 px-3 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-bold text-ink">
-                      {person.display_name || 'Unnamed'}
-                    </p>
-                    <p className="truncate text-sm text-ink-soft">
-                      {person.email || 'No email listed'}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="honey"
-                    disabled={busyId === person.id}
-                    onClick={() => void invite(person.id)}
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2
+                    id="share-sheet-title"
+                    className="font-display text-2xl font-semibold text-ink"
                   >
-                    <Share2 className="h-4 w-4" />
-                    {busyId === person.id ? '…' : 'Invite'}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          ) : query.trim().length >= 2 && !searching ? (
-            <p className="mt-2 text-sm text-ink-soft">
-              No matches. They need an account and discoverability on in their profile.
-            </p>
-          ) : null}
-        </div>
+                    Share places
+                  </h2>
+                  <p className="mt-1 text-sm text-ink-soft">
+                    {selectedPlaceIds.length > 0
+                      ? `Invite someone to collaborate on ${shareCount} selected place${shareCount === 1 ? '' : 's'}. Hearts stay personal for each person.`
+                      : `Invite someone to the full list (${shareCount} place${shareCount === 1 ? '' : 's'}). Both can edit the board; likes remain individual.`}
+                  </p>
+                </div>
+                <Button type="button" variant="ghost" onClick={onClose} aria-label="Close">
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
 
-        <section className="mt-6">
-          <h3 className="text-sm font-bold text-ink">People on this list</h3>
-          <ul className="mt-2 space-y-2">
-            {collab.members.length === 0 ? (
-              <li className="text-sm text-ink-soft">Only you so far.</li>
-            ) : (
-              collab.members.map((m) => (
-                <li
-                  key={m.id}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-line px-3 py-2.5"
+              {collab.activeList ? (
+                <p className="mt-3 text-sm text-ink-soft">
+                  List:{' '}
+                  <span className="font-bold text-ink">{collab.activeList.name}</span>
+                  {collab.activeList.role === 'owner' ? ' · you are owner' : ' · editor'}
+                </p>
+              ) : null}
+
+              <div className="mt-5">
+                <Field
+                  label="Find someone"
+                  hint="Exact email, or the start of their display name"
                 >
-                  <div className="min-w-0">
-                    <p className="truncate font-bold text-ink">
-                      {m.displayName || m.email || 'Member'}
-                    </p>
-                    <p className="text-sm text-ink-soft">
-                      {m.role}
-                      {m.status === 'pending' ? ' · pending invite' : ''}
-                    </p>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft" />
+                    <TextInput
+                      className="pl-10"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="name or email@example.com"
+                      autoFocus
+                    />
                   </div>
-                  {m.role !== 'owner' && collab.activeList?.role === 'owner' ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() =>
-                        setRemoveMember({
-                          id: m.id,
-                          name: m.displayName || m.email || 'this person',
-                        })
-                      }
-                      title="Remove"
-                      aria-label={`Remove ${m.displayName || m.email || 'member'}`}
-                    >
-                      <UserMinus className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                </li>
-              ))
-            )}
-          </ul>
-        </section>
+                </Field>
+                {searching ? (
+                  <p className="mt-2 text-sm text-ink-soft">Searching…</p>
+                ) : null}
+                {results.length > 0 ? (
+                  <ul className="mt-3 space-y-2">
+                    {results.map((person) => (
+                      <li
+                        key={person.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-folio/50 px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-ink">
+                            {person.display_name || 'Unnamed'}
+                          </p>
+                          <p className="truncate text-sm text-ink-soft">
+                            {person.email || 'No email listed'}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="honey"
+                          disabled={busyId === person.id}
+                          onClick={() => void invite(person.id)}
+                        >
+                          <Share2 className="h-4 w-4" />
+                          {busyId === person.id ? '…' : 'Invite'}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : query.trim().length >= 2 && !searching ? (
+                  <p className="mt-2 text-sm text-ink-soft">
+                    No matches. They need an account and discoverability on in their
+                    profile.
+                  </p>
+                ) : null}
+              </div>
 
-        {error ? (
-          <p className="mt-4 rounded-xl bg-honey-soft px-3 py-2 text-sm text-ink">
-            {error}
-          </p>
+              <section className="mt-6">
+                <h3 className="text-sm font-bold text-ink">People on this list</h3>
+                <ul className="mt-2 space-y-2">
+                  {collab.members.length === 0 ? (
+                    <li className="text-sm text-ink-soft">Only you so far.</li>
+                  ) : (
+                    collab.members.map((m) => (
+                      <li
+                        key={m.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl border border-line px-3 py-2.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-bold text-ink">
+                            {m.displayName || m.email || 'Member'}
+                          </p>
+                          <p className="text-sm text-ink-soft">
+                            {m.role}
+                            {m.status === 'pending' ? ' · pending invite' : ''}
+                          </p>
+                        </div>
+                        {m.role !== 'owner' && collab.activeList?.role === 'owner' ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={() =>
+                              setRemoveMember({
+                                id: m.id,
+                                name: m.displayName || m.email || 'this person',
+                              })
+                            }
+                            title="Remove"
+                            aria-label={`Remove ${m.displayName || m.email || 'member'}`}
+                          >
+                            <UserMinus className="h-4 w-4" />
+                          </Button>
+                        ) : null}
+                      </li>
+                    ))
+                  )}
+                </ul>
+              </section>
+
+              {error ? (
+                <p className="mt-4 rounded-xl bg-honey-soft px-3 py-2 text-sm text-ink">
+                  {error}
+                </p>
+              ) : null}
+              {message ? (
+                <p className="mt-4 rounded-xl bg-folio px-3 py-2 text-sm text-ink">
+                  {message}
+                </p>
+              ) : null}
+            </motion.div>
+          </motion.div>
         ) : null}
-        {message ? (
-          <p className="mt-4 rounded-xl bg-folio px-3 py-2 text-sm text-ink">{message}</p>
-        ) : null}
-      </div>
+      </AnimatePresence>
 
       <ConfirmDialog
         open={removeMember != null}
@@ -241,7 +331,8 @@ export function ShareSheet({
             .finally(() => setBusyId(null))
         }}
       />
-    </div>
+    </>,
+    document.body,
   )
 }
 

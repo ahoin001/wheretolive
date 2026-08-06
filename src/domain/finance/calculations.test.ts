@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createExampleScenario } from '../../data/exampleScenario'
 import {
   buildCumulativeSeries,
+  buildMonthlyComposition,
   buildSaleWaterfall,
   computeFinance,
   estimateCashAfterMove,
@@ -82,17 +83,36 @@ describe('finance calculations', () => {
     )
   })
 
-  it('builds cumulative keep vs move series for years 1–5', () => {
+  it('builds cumulative keep vs move series for a chosen horizon', () => {
     const scenario = createExampleScenario()
     const finance = computeFinance(scenario.home, scenario.move)
-    const series = buildCumulativeSeries(finance)
-    expect(series).toHaveLength(5)
-    expect(series[0]?.keep).toBe(Math.round(finance.stayMonthly * 12))
-    expect(series[0]?.move).toBe(
+    const series5 = buildCumulativeSeries(finance, 5)
+    expect(series5).toHaveLength(5)
+    expect(series5[0]?.keep).toBe(Math.round(finance.stayMonthly * 12))
+    expect(series5[0]?.move).toBe(
       Math.round(finance.moveMonthly * 12 + finance.moveOneTimeTotal),
     )
-    expect(series[4]?.keep).toBe(Math.round(finance.stayMonthly * 12 * 5))
-    expect(series[4]?.move).toBe(Math.round(finance.fiveYearMove))
+    expect(series5[4]?.keep).toBe(Math.round(finance.stayMonthly * 12 * 5))
+    expect(series5[4]?.move).toBe(Math.round(finance.fiveYearMove))
+
+    const series20 = buildCumulativeSeries(finance, 20)
+    expect(series20).toHaveLength(20)
+    expect(series20[19]?.keep).toBe(Math.round(finance.stayMonthly * 12 * 20))
+    expect(series20[19]?.move).toBe(
+      Math.round(finance.moveMonthly * 12 * 20 + finance.moveOneTimeTotal),
+    )
+  })
+
+  it('builds monthly composition stacks for stay and rent', () => {
+    const scenario = createExampleScenario()
+    const finance = computeFinance(scenario.home, scenario.move)
+    const { rows, partKeys } = buildMonthlyComposition(finance)
+    expect(rows).toHaveLength(2)
+    expect(rows[0]?.name).toBe('Stay')
+    expect(rows[1]?.name).toBe('Rent')
+    expect(partKeys.length).toBeGreaterThan(0)
+    const staySum = partKeys.reduce((s, k) => s + Number(rows[0]?.[k] ?? 0), 0)
+    expect(staySum).toBe(Math.round(finance.stayMonthly))
   })
 
   it('funnels lean form “other” costs onto misc', () => {

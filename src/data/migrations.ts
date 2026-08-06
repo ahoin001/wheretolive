@@ -145,7 +145,14 @@ function normalizePlace(raw: unknown): SavedPlace | null {
       ? (p.tier as PlaceTier)
       : 'maybe',
     status: normalizeStatus(p.status),
-    favorite: Boolean(p.favorite),
+    favorite: Boolean(p.favorite ?? p.likedByMe),
+    likedByMe:
+      typeof p.likedByMe === 'boolean' ? p.likedByMe : Boolean(p.favorite),
+    likedAt: typeof p.likedAt === 'string' ? p.likedAt : null,
+    likedByUserIds: Array.isArray(p.likedByUserIds)
+      ? p.likedByUserIds.map(String)
+      : undefined,
+    likedBy: Array.isArray(p.likedBy) ? (p.likedBy as SavedPlace['likedBy']) : undefined,
     images,
     tags: splitLegacyTags(p.tags),
   }

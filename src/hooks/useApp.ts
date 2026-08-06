@@ -169,6 +169,15 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
     }))
   }, [updateData])
 
+  const removePlaces = useCallback((ids: string[]) => {
+    if (!ids.length) return
+    const drop = new Set(ids)
+    updateData((prev) => ({
+      ...prev,
+      places: prev.places.filter((p) => !drop.has(p.id)),
+    }))
+  }, [updateData])
+
   const replacePlaces = useCallback((places: SavedPlace[]) => {
     updateData((prev) => ({ ...prev, places }))
   }, [updateData])
@@ -233,6 +242,7 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
     setMode,
     upsertPlace,
     removePlace,
+    removePlaces,
     replacePlaces,
     eraseAll,
     exportData,

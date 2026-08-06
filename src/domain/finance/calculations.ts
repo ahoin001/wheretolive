@@ -152,22 +152,86 @@ export function buildSaleWaterfall(
   return steps
 }
 
-/** Cumulative housing spend for years 1–5. */
+/** Cumulative housing spend for years 1…horizon (includes move one-time costs once). */
+export type CumulativeHorizon = 5 | 10 | 20
+
+export function housingSpendAtHorizon(
+  finance: FinanceBreakdown,
+  years: number,
+): { stay: number; move: number } {
+  const y = Math.max(1, Math.round(years))
+  return {
+    stay: finance.stayMonthly * 12 * y,
+    move: finance.moveMonthly * 12 * y + money(finance.moveOneTimeTotal),
+  }
+}
+
 export function buildCumulativeSeries(
   finance: FinanceBreakdown,
+  years: CumulativeHorizon = 5,
 ): CumulativeYearPoint[] {
   const oneTime = money(finance.moveOneTimeTotal)
   const points: CumulativeYearPoint[] = []
-  for (let year = 1; year <= 5; year++) {
+  for (let year = 1; year <= years; year++) {
     points.push({
       year,
-      label: `Year ${year}`,
+      label: years <= 5 ? `Year ${year}` : `Y${year}`,
       keep: Math.round(finance.stayMonthly * 12 * year),
       // One-time costs hit once at the start of the move path
       move: Math.round(finance.moveMonthly * 12 * year + oneTime),
     })
   }
   return points
+}
+
+/**
+ * Stacked monthly load rows for Stay vs Rent.
+ * Shared categories align keys where names match; rent “Housing” is the main rent payment.
+ */
+export function buildMonthlyComposition(
+  finance: FinanceBreakdown,
+): {
+  rows: Array<Record<string, string | number>>
+  partKeys: string[]
+} {
+  const stay = finance.stayParts
+  const move = finance.moveParts
+  const partKeys = Array.from(
+    new Set([...Object.keys(stay), ...Object.keys(move)]),
+  ).filter((k) => money(stay[k] ?? 0) > 0 || money(move[k] ?? 0) > 0)
+
+  // Prefer a stable visual order for common household line items
+  const preferred = [
+    'Mortgage',
+    'Housing',
+    'Property tax',
+    'Insurance',
+    'HOA',
+    'Utilities',
+    'Home care / repairs',
+    'Miscellaneous',
+  ]
+  partKeys.sort((a, b) => {
+    const ia = preferred.indexOf(a)
+    const ib = preferred.indexOf(b)
+    if (ia === -1 && ib === -1) return a.localeCompare(b)
+    if (ia === -1) return 1
+    if (ib === -1) return -1
+    return ia - ib
+  })
+
+  const rowFor = (name: string, parts: Record<string, number>) => {
+    const row: Record<string, string | number> = { name }
+    for (const key of partKeys) {
+      row[key] = Math.round(money(parts[key] ?? 0))
+    }
+    return row
+  }
+
+  return {
+    rows: [rowFor('Stay', stay), rowFor('Rent', move)],
+    partKeys,
+  }
 }
 
 export function formatMoney(n: number, compact = false): string {
