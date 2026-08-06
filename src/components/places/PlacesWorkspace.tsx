@@ -3,6 +3,7 @@ import {
   Check,
   CheckSquare,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Copy,
   ExternalLink,
@@ -1689,40 +1690,40 @@ export function PlacesWorkspace({
 
                     {empty ? null : (
                       <>
-                        {/* Mobile: full-width stacked rows */}
-                        <ul className="mt-3 space-y-2 md:hidden">
+                        {/* Mobile: photo-led rows — gallery on photo, edit on details */}
+                        <ul className="mt-3 space-y-2.5 md:hidden">
                           {placesInTier.map((place) => {
                             const images = placeImages(place)
-                            const inCompare = compareIds.includes(place.id)
                             const selected = selectedIds.includes(place.id)
                             return (
                               <li
                                 key={place.id}
                                 className={cn(
-                                  'flex gap-3 overflow-hidden rounded-xl border bg-panel p-2 shadow-[var(--shadow-soft)]',
+                                  'overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
                                   motion.color,
                                   selectMode && selected
                                     ? 'border-sea ring-2 ring-sea/25'
-                                    : inCompare
-                                      ? 'border-sea'
-                                      : 'border-line',
+                                    : 'border-line',
                                 )}
                               >
-                                {images[0] ? (
-                                  <OpenableImage
-                                    images={images}
-                                    index={0}
-                                    title={place.title || 'Untitled'}
-                                    onOpen={openLightbox}
-                                    className="h-20 w-20 shrink-0 rounded-lg"
-                                    imgClassName="h-20 w-20"
-                                  />
-                                ) : (
-                                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-folio text-xs text-ink-soft">
-                                    No photo
+                                <div className="flex min-h-[7.25rem]">
+                                  <div className="relative w-[42%] min-w-[7.5rem] max-w-[11rem] shrink-0 self-stretch bg-folio">
+                                    {images[0] ? (
+                                      <OpenableImage
+                                        images={images}
+                                        index={0}
+                                        title={place.title || 'Untitled'}
+                                        onOpen={openLightbox}
+                                        showCue
+                                        className="absolute inset-0 h-full w-full"
+                                        imgClassName="h-full w-full"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full min-h-[7.25rem] items-center justify-center px-2 text-center text-xs text-ink-soft">
+                                        No photo
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                                <div className="flex min-w-0 flex-1 flex-col justify-between gap-2 py-0.5">
                                   <button
                                     type="button"
                                     onClick={() =>
@@ -1730,49 +1731,32 @@ export function PlacesWorkspace({
                                         ? toggleSelect(place.id)
                                         : startEdit(place)
                                     }
-                                    className="w-full text-left"
+                                    className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 px-3 py-3 text-left"
                                   >
-                                    <p className="line-clamp-2 text-sm font-bold leading-snug text-ink">
+                                    <p className="line-clamp-2 text-[0.95rem] font-bold leading-snug text-ink">
                                       {place.title || 'Untitled'}
                                     </p>
-                                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
-                                      <span>{primaryCostLabel(place)}</span>
+                                    <p className="flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
+                                      <span className="font-semibold text-ink">
+                                        {primaryCostLabel(place)}
+                                      </span>
                                       <PetsBadge
                                         pets={place.pets ?? 'no'}
                                         compact
                                       />
                                     </p>
+                                    <span className="mt-0.5 inline-flex items-center gap-0.5 text-xs font-bold text-sea-deep">
+                                      {selectMode
+                                        ? selected
+                                          ? 'Selected'
+                                          : 'Tap to select'
+                                        : 'Edit details'}
+                                      <ChevronRight
+                                        className="h-3.5 w-3.5"
+                                        aria-hidden
+                                      />
+                                    </span>
                                   </button>
-                                  {selectMode ? (
-                                    <Button
-                                      type="button"
-                                      variant={selected ? 'primary' : 'secondary'}
-                                      className="min-h-11 w-full rounded-xl px-3 text-sm"
-                                      onClick={() => toggleSelect(place.id)}
-                                    >
-                                      {selected ? 'Selected' : 'Select'}
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      type="button"
-                                      variant={
-                                        inCompare ? 'primary' : 'secondary'
-                                      }
-                                      className="min-h-11 w-full rounded-xl px-3 text-sm"
-                                      onClick={() =>
-                                        setCompareIds((ids) =>
-                                          ids.includes(place.id)
-                                            ? ids.filter((id) => id !== place.id)
-                                            : [...ids, place.id].slice(0, 3),
-                                        )
-                                      }
-                                      disabled={
-                                        !inCompare && compareIds.length >= 3
-                                      }
-                                    >
-                                      {inCompare ? 'In compare' : 'Compare'}
-                                    </Button>
-                                  )}
                                 </div>
                               </li>
                             )
@@ -1783,19 +1767,16 @@ export function PlacesWorkspace({
                         <div className="mt-4 hidden gap-3 overflow-x-auto scroll-smooth pb-1 md:flex md:snap-x md:snap-mandatory">
                           {placesInTier.map((place) => {
                             const images = placeImages(place)
-                            const inCompare = compareIds.includes(place.id)
                             const selected = selectedIds.includes(place.id)
                             return (
                               <div
                                 key={place.id}
                                 className={cn(
-                                  'w-[min(16rem,70vw)] shrink-0 snap-start overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
+                                  'w-[min(17rem,70vw)] shrink-0 snap-start overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
                                   motion.color,
                                   selectMode && selected
                                     ? 'border-sea ring-2 ring-sea/25'
-                                    : inCompare
-                                      ? 'border-sea'
-                                      : 'border-line hover:border-sea',
+                                    : 'border-line hover:border-sea',
                                 )}
                               >
                                 {images[0] ? (
@@ -1804,66 +1785,48 @@ export function PlacesWorkspace({
                                     index={0}
                                     title={place.title || 'Untitled'}
                                     onOpen={openLightbox}
-                                    className="h-28 w-full"
-                                    imgClassName="h-28"
+                                    showCue
+                                    className="h-36 w-full"
+                                    imgClassName="h-36"
                                   />
                                 ) : (
-                                  <div className="flex h-28 items-center justify-center bg-folio text-sm text-ink-soft">
+                                  <div className="flex h-36 items-center justify-center bg-folio text-sm text-ink-soft">
                                     No photo
                                   </div>
                                 )}
-                                <div className="p-3">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      selectMode
-                                        ? toggleSelect(place.id)
-                                        : startEdit(place)
-                                    }
-                                    className="w-full text-left"
-                                  >
-                                    <p className="line-clamp-2 font-bold text-ink">
-                                      {place.title || 'Untitled'}
-                                    </p>
-                                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
-                                      <span>{primaryCostLabel(place)}</span>
-                                      <PetsBadge
-                                        pets={place.pets ?? 'no'}
-                                        compact
-                                      />
-                                    </p>
-                                  </button>
-                                  {selectMode ? (
-                                    <Button
-                                      type="button"
-                                      variant={selected ? 'primary' : 'secondary'}
-                                      className="mt-2 h-9 min-h-9 w-full rounded-xl px-3 text-sm"
-                                      onClick={() => toggleSelect(place.id)}
-                                    >
-                                      {selected ? 'Selected' : 'Select'}
-                                    </Button>
-                                  ) : (
-                                    <Button
-                                      type="button"
-                                      variant={
-                                        inCompare ? 'primary' : 'secondary'
-                                      }
-                                      className="mt-2 h-9 min-h-9 w-full rounded-xl px-3 text-sm"
-                                      onClick={() =>
-                                        setCompareIds((ids) =>
-                                          ids.includes(place.id)
-                                            ? ids.filter((id) => id !== place.id)
-                                            : [...ids, place.id].slice(0, 3),
-                                        )
-                                      }
-                                      disabled={
-                                        !inCompare && compareIds.length >= 3
-                                      }
-                                    >
-                                      {inCompare ? 'In compare' : 'Compare'}
-                                    </Button>
-                                  )}
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    selectMode
+                                      ? toggleSelect(place.id)
+                                      : startEdit(place)
+                                  }
+                                  className="w-full p-3.5 text-left"
+                                >
+                                  <p className="line-clamp-2 font-bold text-ink">
+                                    {place.title || 'Untitled'}
+                                  </p>
+                                  <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
+                                    <span className="font-semibold text-ink">
+                                      {primaryCostLabel(place)}
+                                    </span>
+                                    <PetsBadge
+                                      pets={place.pets ?? 'no'}
+                                      compact
+                                    />
+                                  </p>
+                                  <span className="mt-2 inline-flex items-center gap-0.5 text-xs font-bold text-sea-deep">
+                                    {selectMode
+                                      ? selected
+                                        ? 'Selected'
+                                        : 'Tap to select'
+                                      : 'Edit details'}
+                                    <ChevronRight
+                                      className="h-3.5 w-3.5"
+                                      aria-hidden
+                                    />
+                                  </span>
+                                </button>
                               </div>
                             )
                           })}
@@ -1991,7 +1954,7 @@ export function PlacesWorkspace({
                       : 'Choose up to 3 places to compare'}
                 </p>
                 <p className="mt-0.5 text-sm text-ink-soft">
-                  You can also add from the tier board with the Compare control on each tile.
+                  Tap Add to include a place, or tap again to remove it. Up to 3.
                 </p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                   {[...allPlaces].sort(sortByRecentlyAdded).map((place) => {

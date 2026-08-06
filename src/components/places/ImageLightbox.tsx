@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Images, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { cssMotion } from '../../lib/motion'
 import {
@@ -239,6 +239,8 @@ export function OpenableImage({
   className,
   imgClassName,
   alt = '',
+  /** Always show gallery cue (mobile boards); otherwise hover/focus only */
+  showCue = false,
 }: {
   images: string[]
   index?: number
@@ -247,6 +249,7 @@ export function OpenableImage({
   className?: string
   imgClassName?: string
   alt?: string
+  showCue?: boolean
 }) {
   const url = images[index]
   if (!url) return null
@@ -264,7 +267,7 @@ export function OpenableImage({
       )}
       aria-label={
         images.length > 1
-          ? `View photo ${index + 1} of ${images.length}${title ? ` — ${title}` : ''}`
+          ? `View ${images.length} photos${title ? ` — ${title}` : ''}`
           : `View photo${title ? ` — ${title}` : ''}`
       }
     >
@@ -288,9 +291,17 @@ export function OpenableImage({
           }
         }}
       />
-      <span className="pointer-events-none absolute inset-0 bg-ink/0 motion-hover-veil group-hover:bg-ink/20 group-focus-visible:bg-ink/15" />
-      <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-0.5 text-xs font-bold text-white opacity-0 motion-hover-veil group-hover:opacity-100 group-focus-visible:opacity-100">
-        Expand
+      <span className="pointer-events-none absolute inset-0 bg-ink/0 motion-hover-veil group-hover:bg-ink/15 group-focus-visible:bg-ink/10" />
+      <span
+        className={cn(
+          'pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-ink/75 px-2 py-1 text-[11px] font-bold text-white shadow-sm',
+          showCue
+            ? 'opacity-100'
+            : 'opacity-0 motion-hover-veil group-hover:opacity-100 group-focus-visible:opacity-100',
+        )}
+      >
+        <Images className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {images.length > 1 ? <span>{images.length}</span> : null}
       </span>
     </button>
   )
