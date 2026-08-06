@@ -7,7 +7,6 @@ import { PageTransition } from './components/ui/PageTransition'
 import { MoveStep } from './components/wizard/MoveStep'
 import { PictureStep } from './components/wizard/PictureStep'
 import { StayStep } from './components/wizard/StayStep'
-import { WelcomeStep } from './components/wizard/WelcomeStep'
 import { useApp } from './hooks/useApp'
 import { useAuth } from './hooks/useAuth'
 import { useCollaboration } from './hooks/useCollaboration'
@@ -40,6 +39,22 @@ export default function App() {
     }
   }, [app.ready, app.ui.mode, guideAllowed, app.setMode, auth.signedIn])
 
+  // Entering Guide always lands in the wizard (creates a blank scenario if needed).
+  useEffect(() => {
+    if (!app.ready || !auth.signedIn || !guideAllowed) return
+    if (app.ui.mode !== 'guide') return
+    if (!app.scenario) {
+      app.setMode('guide')
+    }
+  }, [
+    app.ready,
+    auth.signedIn,
+    guideAllowed,
+    app.ui.mode,
+    app.scenario,
+    app.setMode,
+  ])
+
   useEffect(() => {
     if (!auth.signedIn) setAccountOpen(false)
   }, [auth.signedIn])
@@ -48,7 +63,6 @@ export default function App() {
     if (!auth.signedIn) return 'auth'
     if (accountOpen) return 'account'
     if (!guideAllowed || app.ui.mode === 'places') return 'places'
-    if (!app.scenario || app.ui.activeStep === 'welcome') return 'welcome'
     return app.ui.activeStep
   }, [
     auth.signedIn,
@@ -56,7 +70,6 @@ export default function App() {
     guideAllowed,
     app.ui.mode,
     app.ui.activeStep,
-    app.scenario,
   ])
 
   if (!auth.ready) {
@@ -116,14 +129,12 @@ export default function App() {
         />
       </Suspense>
     )
-  } else if (!app.scenario || app.ui.activeStep === 'welcome') {
-    body = <WelcomeStep app={app} />
-  } else if (app.ui.activeStep === 'stay') {
-    body = <StayStep app={app} />
   } else if (app.ui.activeStep === 'move') {
     body = <MoveStep app={app} />
-  } else {
+  } else if (app.ui.activeStep === 'picture') {
     body = <PictureStep app={app} />
+  } else {
+    body = <StayStep app={app} />
   }
 
   return (

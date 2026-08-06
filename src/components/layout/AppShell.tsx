@@ -17,7 +17,7 @@ import { Button } from '../ui/Button'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { cn } from '../../lib/utils'
 
-/** Main guide boards (welcome is start-only, not in the chip strip). */
+/** Main guide boards */
 const STEP_META: { id: WizardStepId; label: string; short: string }[] = [
   { id: 'stay', label: 'Your home', short: 'Home' },
   { id: 'move', label: 'If you move', short: 'Rent' },
@@ -45,7 +45,7 @@ export function AppShell({
   const [eraseOpen, setEraseOpen] = useState(false)
   const { ui, finance, stepIndex, steps } = app
   const showGuideChrome = guideAllowed && ui.mode === 'guide'
-  const showNav = Boolean(app.scenario) && ui.activeStep !== 'welcome'
+  const showNav = Boolean(app.scenario)
   const workStepIndex = STEP_META.findIndex((s) => s.id === ui.activeStep)
 
   return (
@@ -136,7 +136,7 @@ export function AppShell({
         </nav>
       ) : null}
 
-      {showGuideChrome && finance && app.scenario && ui.activeStep !== 'welcome' ? (
+      {showGuideChrome && finance && app.scenario ? (
         <aside className="no-print grid gap-3 rounded-[1.5rem] border border-line bg-folio/90 p-4 md:grid-cols-4">
           <Stat label="Stay / mo" value={formatMoney(finance.stayMonthly)} tone="keep" />
           <Stat label="Rent / mo" value={formatMoney(finance.moveMonthly)} tone="move" />

@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { CheckSquare, Copy, ExternalLink, FolderOpen, Heart, Pencil, Plus, Share2, Square, Trash2, X } from 'lucide-react'
+import {
+  CheckSquare,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  FolderOpen,
+  Heart,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Share2,
+  SlidersHorizontal,
+  Square,
+  Trash2,
+  X,
+} from 'lucide-react'
 import type { AppController } from '../../hooks/useApp'
 import type { AuthController } from '../../hooks/useAuth'
 import type { CollaborationController } from '../../hooks/useCollaboration'
@@ -296,6 +311,20 @@ function likedByPeople(
 
 type ListSort = 'recent' | 'liked' | 'monthly_asc' | 'monthly_desc'
 
+function countActiveFilters(
+  listSort: ListSort,
+  petsFilter: PetsFilter,
+  mutualOnly: boolean,
+  cityFilterActive: boolean,
+): number {
+  return (
+    (listSort !== 'recent' ? 1 : 0) +
+    (petsFilter !== 'all' ? 1 : 0) +
+    (mutualOnly ? 1 : 0) +
+    (cityFilterActive ? 1 : 0)
+  )
+}
+
 /** Monthly rent for pricing sorts (rental-first product). Buy list prices are not used. */
 function monthlyCost(place: SavedPlace): number | null {
   if (place.listingKind === 'buy') return null
@@ -410,6 +439,7 @@ export function PlacesWorkspace({
   const [copyPlaceId, setCopyPlaceId] = useState<string | null>(null)
   const [bulkCopyOpen, setBulkCopyOpen] = useState(false)
   const [listToast, setListToast] = useState<string | null>(null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<
     | { kind: 'single'; id: string; title: string }
@@ -533,6 +563,12 @@ export function PlacesWorkspace({
   const cityFilterActive = activeCityKeys.length > 0
   const petsFilterActive = petsFilter !== 'all'
   const hasActiveFilters = petsFilterActive || mutualOnly || cityFilterActive
+  const activeFilterCount = countActiveFilters(
+    listSort,
+    petsFilter,
+    mutualOnly,
+    cityFilterActive,
+  )
 
   const clearAllFilters = () => {
     setListSort('recent')

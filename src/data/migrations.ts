@@ -15,16 +15,11 @@ import {
 } from '../domain/places/address'
 import { createExampleScenario } from './exampleScenario'
 
-const WIZARD_STEPS: readonly WizardStepId[] = [
-  'welcome',
-  'stay',
-  'move',
-  'picture',
-]
+const WIZARD_STEPS: readonly WizardStepId[] = ['stay', 'move', 'picture']
 
-/** Map pre-simplify step ids onto the 4-step stay/rent guide. */
+/** Map pre-simplify / welcome ids onto the 3-step stay/rent guide. */
 const LEGACY_STEP_MAP: Record<string, WizardStepId> = {
-  welcome: 'welcome',
+  welcome: 'stay',
   stay: 'stay',
   move: 'move',
   picture: 'picture',
@@ -43,7 +38,7 @@ export function emptyAppData(): AppData {
     scenario: null,
     places: [],
     ui: {
-      activeStep: 'welcome',
+      activeStep: 'stay',
       mode: 'places',
       completedSteps: [],
     },
@@ -159,8 +154,8 @@ function normalizePlace(raw: unknown): SavedPlace | null {
 }
 
 function normalizeWizardStep(raw: unknown): WizardStepId {
-  if (typeof raw !== 'string') return 'welcome'
-  return LEGACY_STEP_MAP[raw] ?? 'welcome'
+  if (typeof raw !== 'string') return 'stay'
+  return LEGACY_STEP_MAP[raw] ?? 'stay'
 }
 
 function normalizeCompletedSteps(raw: unknown): WizardStepId[] {
@@ -219,7 +214,7 @@ export function seedExampleAppData(): AppData {
     ui: {
       activeStep: 'stay',
       mode: 'guide',
-      completedSteps: ['welcome'],
+      completedSteps: [],
     },
   }
 }

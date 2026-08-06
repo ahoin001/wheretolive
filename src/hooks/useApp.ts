@@ -14,7 +14,7 @@ import type {
   WizardStepId,
 } from '../domain/types'
 
-const STEP_ORDER: WizardStepId[] = ['welcome', 'stay', 'move', 'picture']
+const STEP_ORDER: WizardStepId[] = ['stay', 'move', 'picture']
 
 /**
  * App data is identity-scoped in localStorage (guest vs user:<id>).
@@ -67,19 +67,32 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
   }, [])
 
   const startExample = useCallback(() => {
-    setData(seedExampleAppData())
+    setData((prev) => {
+      const example = seedExampleAppData()
+      return {
+        ...example,
+        places: prev.places,
+        ui: {
+          ...example.ui,
+          mode: 'guide',
+          activeStep: 'stay',
+          completedSteps: [],
+        },
+      }
+    })
   }, [])
 
   const startFresh = useCallback(() => {
-    setData({
-      ...emptyAppData(),
+    setData((prev) => ({
+      ...prev,
       scenario: createBlankScenario(),
       ui: {
+        ...prev.ui,
         activeStep: 'stay',
         mode: 'guide',
-        completedSteps: ['welcome'],
+        completedSteps: [],
       },
-    })
+    }))
   }, [])
 
   const setScenario = useCallback((scenario: Scenario) => {
@@ -107,13 +120,15 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
   )
 
   const goToStep = useCallback((step: WizardStepId) => {
-    // Free navigation does not invent "completed" — only Continue does that.
+    const safe =
+      step === 'stay' || step === 'move' || step === 'picture' ? step : 'stay'
     updateData((prev) => ({
       ...prev,
+      scenario: prev.scenario ?? createBlankScenario(),
       ui: {
         ...prev.ui,
         mode: 'guide',
-        activeStep: step,
+        activeStep: safe,
       },
     }))
   }, [updateData])
@@ -121,12 +136,18 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
   const nextStep = useCallback(() => {
     updateData((prev) => {
       const idx = STEP_ORDER.indexOf(prev.ui.activeStep)
-      const next = STEP_ORDER[Math.min(STEP_ORDER.length - 1, idx + 1)]
-      const completed = new Set(prev.ui.completedSteps)
-      completed.add(prev.ui.activeStep)
+      const from = idx >= 0 ? idx : 0
+      const next = STEP_ORDER[Math.min(STEP_ORDER.length - 1, from + 1)]
+      const completed = new Set(
+        prev.ui.completedSteps.filter((s) =>
+          STEP_ORDER.includes(s as WizardStepId),
+        ),
+      )
+      completed.add(STEP_ORDER[from]!)
       completed.add(next)
       return {
         ...prev,
+        scenario: prev.scenario ?? createBlankScenario(),
         ui: {
           ...prev.ui,
           mode: 'guide',
@@ -140,7 +161,8 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
   const prevStep = useCallback(() => {
     updateData((prev) => {
       const idx = STEP_ORDER.indexOf(prev.ui.activeStep)
-      const back = STEP_ORDER[Math.max(0, idx - 1)]
+      const from = idx >= 0 ? idx : 0
+      const back = STEP_ORDER[Math.max(0, from - 1)]
       return {
         ...prev,
         ui: { ...prev.ui, mode: 'guide', activeStep: back },
@@ -149,7 +171,29 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
   }, [updateData])
 
   const setMode = useCallback((mode: 'guide' | 'places') => {
-    updateData((prev) => ({ ...prev, ui: { ...prev.ui, mode } }))
+    updateData((prev) => {
+      if (mode !== 'guide') {
+        return { ...prev, ui: { ...prev.ui, mode } }
+      }
+      const step =
+        prev.ui.activeStep === 'stay' ||
+        prev.ui.activeStep === 'move' ||
+        prev.ui.activeStep === 'picture'
+          ? prev.ui.activeStep
+          : 'stay'
+      return {
+        ...prev,
+        scenario: prev.scenario ?? createBlankScenario(),
+        ui: {
+          ...prev.ui,
+          mode: 'guide',
+          activeStep: step,
+          completedSteps: prev.ui.completedSteps.filter(
+            (s) => s === 'stay' || s === 'move' || s === 'picture',
+          ),
+        },
+      }
+    })
   }, [updateData])
 
   const upsertPlace = useCallback((place: SavedPlace) => {
@@ -217,7 +261,7 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
     [data.scenario],
   )
 
-  const stepIndex = STEP_ORDER.indexOf(data.ui.activeStep)
+  const stepIndex = Math.max(0, STEP_ORDER.indexOf(data.ui.activeStep))
 
   return {
     ready,

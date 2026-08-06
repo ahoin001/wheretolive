@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { migrateAppData } from './migrations'
 
 describe('wizard step migration', () => {
-  it('maps legacy 8-step ids onto the 4-step guide', () => {
+  it('maps legacy 8-step ids onto the 3-step guide', () => {
     const next = migrateAppData({
       version: 1,
       scenario: null,
@@ -14,11 +14,24 @@ describe('wizard step migration', () => {
       },
     })
     expect(next.ui.activeStep).toBe('move')
-    expect(next.ui.completedSteps).toEqual(['welcome', 'stay', 'move', 'picture'])
+    expect(next.ui.completedSteps).toEqual(['stay', 'move', 'picture'])
   })
 
-  it('maps unknown step ids to welcome', () => {
-    const next = migrateAppData({
+  it('maps welcome and unknown steps to stay', () => {
+    expect(
+      migrateAppData({
+        version: 1,
+        scenario: null,
+        places: [],
+        ui: {
+          activeStep: 'welcome',
+          mode: 'guide',
+          completedSteps: ['welcome'],
+        },
+      }).ui.activeStep,
+    ).toBe('stay')
+
+    const unknown = migrateAppData({
       version: 1,
       scenario: null,
       places: [],
@@ -28,8 +41,8 @@ describe('wizard step migration', () => {
         completedSteps: ['not_a_step'],
       },
     })
-    expect(next.ui.activeStep).toBe('welcome')
-    expect(next.ui.completedSteps).toEqual([])
+    expect(unknown.ui.activeStep).toBe('stay')
+    expect(unknown.ui.completedSteps).toEqual([])
   })
 
   it('keeps current step ids', () => {
@@ -40,10 +53,10 @@ describe('wizard step migration', () => {
       ui: {
         activeStep: 'picture',
         mode: 'guide',
-        completedSteps: ['welcome', 'stay', 'move'],
+        completedSteps: ['stay', 'move'],
       },
     })
     expect(next.ui.activeStep).toBe('picture')
-    expect(next.ui.completedSteps).toEqual(['welcome', 'stay', 'move'])
+    expect(next.ui.completedSteps).toEqual(['stay', 'move'])
   })
 })

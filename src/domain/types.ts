@@ -48,11 +48,7 @@ export type FitLevel = 'strong' | 'possible' | 'closer_look'
 export type ReadinessLevel = 'ready' | 'preparing' | 'exploring'
 export type PathLean = 'keep' | 'downsize' | 'mixed'
 
-export type WizardStepId =
-  | 'welcome'
-  | 'stay'
-  | 'move'
-  | 'picture'
+export type WizardStepId = 'stay' | 'move' | 'picture'
 
 export type PlaceTier = 'dream' | 'strong' | 'maybe' | 'pass'
 export type PlaceStatus = 'none' | 'visited' | 'offer'
