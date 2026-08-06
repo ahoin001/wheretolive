@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
+  Check,
   CheckSquare,
   ChevronDown,
   Copy,
@@ -171,6 +172,186 @@ function PetsFilterControl({
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** Compact multi-select city filter (dropdown) — keeps filter bar one row. */
+function CityFilterMenu({
+  cities,
+  selectedKeys,
+  onChange,
+  className,
+}: {
+  cities: { key: string; label: string; count: number }[]
+  selectedKeys: string[]
+  onChange: (keys: string[]) => void
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null)
+  const known = useMemo(() => new Set(cities.map((c) => c.key)), [cities])
+  const active = useMemo(
+    () => selectedKeys.filter((k) => known.has(k)),
+    [selectedKeys, known],
+  )
+
+  useEffect(() => {
+    if (!open) return
+    const place = () => {
+      const el = buttonRef.current
+      if (!el) return
+      const r = el.getBoundingClientRect()
+      const menuH = 224
+      const spaceBelow = window.innerHeight - r.bottom
+      const openUp = spaceBelow < menuH && r.top > spaceBelow
+      setMenuStyle({
+        position: 'fixed',
+        left: Math.min(r.left, window.innerWidth - 288),
+        width: Math.max(r.width, 224),
+        maxHeight: menuH,
+        zIndex: 90,
+        ...(openUp
+          ? { bottom: window.innerHeight - r.top + 6, top: 'auto' }
+          : { top: r.bottom + 6, bottom: 'auto' }),
+      })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  if (cities.length === 0) return null
+
+  const summary =
+    active.length === 0
+      ? 'All cities'
+      : active.length === 1
+        ? (cities.find((c) => c.key === active[0])?.label ?? '1 city')
+        : `${active.length} cities`
+
+  const toggle = (key: string) => {
+    if (active.includes(key)) {
+      onChange(active.filter((k) => k !== key))
+    } else {
+      onChange([...active, key])
+    }
+  }
+
+  return (
+    <div ref={rootRef} className={cn('relative min-w-0', className)}>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 rounded-xl border bg-panel px-2.5 text-left text-sm font-bold text-ink md:h-8 md:min-w-[9.5rem] md:max-w-[13rem] md:rounded-lg',
+          motion.chip,
+          active.length > 0
+            ? 'border-sea bg-sea/5 text-sea-deep'
+            : 'border-line hover:border-sea',
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{summary}</span>
+        <ChevronDown
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-ink-soft',
+            motion.transform,
+            open && 'rotate-180',
+          )}
+        />
+      </button>
+
+      {open && menuStyle ? (
+        <div
+          role="listbox"
+          aria-multiselectable
+          aria-label="Filter by city"
+          style={menuStyle}
+          className="overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-[var(--shadow-lift)]"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={active.length === 0}
+            onClick={() => {
+              onChange([])
+              setOpen(false)
+            }}
+            className={cn(
+              'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold hover:bg-folio',
+              active.length === 0 ? 'text-sea-deep' : 'text-ink',
+            )}
+          >
+            <span
+              className={cn(
+                'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                active.length === 0
+                  ? 'border-sea bg-sea text-white'
+                  : 'border-line bg-panel',
+              )}
+            >
+              {active.length === 0 ? <Check className="h-3 w-3" /> : null}
+            </span>
+            All cities
+          </button>
+          {cities.map((city) => {
+            const on = active.includes(city.key)
+            return (
+              <button
+                key={city.key}
+                type="button"
+                role="option"
+                aria-selected={on}
+                onClick={() => toggle(city.key)}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold hover:bg-folio',
+                  on ? 'text-sea-deep' : 'text-ink',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
+                    on
+                      ? 'border-sea bg-sea text-white'
+                      : 'border-line bg-panel',
+                  )}
+                >
+                  {on ? <Check className="h-3 w-3" /> : null}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{city.label}</span>
+                <span className="tabular-nums text-xs text-ink-soft">
+                  {city.count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -661,12 +842,6 @@ export function PlacesWorkspace({
     })
   }
 
-  const toggleCity = (key: string) => {
-    setCityKeys((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
-    )
-  }
-
   const save = () => {
     if (!form.title.trim() && !form.url.trim()) {
       alert('Add a title or listing link first.')
@@ -753,15 +928,15 @@ export function PlacesWorkspace({
   ]
 
   const filtersBody = (
-    <>
-      <label className="flex flex-col gap-1.5">
+    <div className="contents">
+      <label className="flex min-w-0 flex-col gap-1.5 md:min-w-[11rem]">
         <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
           Sort
         </span>
         <select
           value={listSort}
           onChange={(e) => setListSort(e.target.value as ListSort)}
-          className="min-h-10 w-full rounded-xl border border-line bg-panel px-3 text-sm font-bold text-ink md:min-h-8 md:w-auto md:rounded-lg md:px-2.5"
+          className="h-10 w-full rounded-xl border border-line bg-panel px-2.5 text-sm font-bold text-ink md:h-8 md:rounded-lg"
         >
           <option value="recent">Recently added</option>
           <option value="liked">Recently liked</option>
@@ -770,7 +945,7 @@ export function PlacesWorkspace({
         </select>
       </label>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 flex-col gap-1.5">
         <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
           Pets
         </span>
@@ -787,7 +962,7 @@ export function PlacesWorkspace({
               aria-checked={mutualOnly}
               onClick={() => setMutualOnly((v) => !v)}
               className={cn(
-                'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
+                'inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
                 motion.chip,
                 mutualOnly
                   ? 'border-honey bg-honey text-white'
@@ -802,57 +977,18 @@ export function PlacesWorkspace({
       </div>
 
       {availableCities.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
+        <div className="flex min-w-0 flex-col gap-1.5 md:min-w-[10rem]">
           <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
             City
           </span>
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setCityKeys([])}
-              aria-pressed={!cityFilterActive}
-              className={cn(
-                'h-8 rounded-full border px-2.5 text-xs font-bold',
-                motion.chip,
-                !cityFilterActive
-                  ? 'border-sea bg-sea text-white'
-                  : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
-              )}
-            >
-              All
-            </button>
-            {availableCities.map((city) => {
-              const on = activeCityKeys.includes(city.key)
-              return (
-                <button
-                  key={city.key}
-                  type="button"
-                  onClick={() => toggleCity(city.key)}
-                  aria-pressed={on}
-                  className={cn(
-                    'h-8 rounded-full border px-2.5 text-xs font-bold',
-                    motion.chip,
-                    on
-                      ? 'border-sea bg-sea text-white'
-                      : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
-                  )}
-                >
-                  {city.label}
-                  <span
-                    className={cn(
-                      'ml-1 tabular-nums',
-                      on ? 'text-white/80' : 'text-ink-soft',
-                    )}
-                  >
-                    {city.count}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
+          <CityFilterMenu
+            cities={availableCities}
+            selectedKeys={activeCityKeys}
+            onChange={setCityKeys}
+          />
         </div>
       ) : null}
-    </>
+    </div>
   )
 
   return (
@@ -1267,8 +1403,8 @@ export function PlacesWorkspace({
           {view === 'list' ? (
             <div className="space-y-3">
               {/* Desktop filters stay inline; mobile uses Filters sheet */}
-              <div className="hidden rounded-xl border border-line bg-folio/50 px-3.5 py-2.5 md:block">
-                <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+              <div className="hidden overflow-visible rounded-xl border border-line bg-folio/50 px-3.5 py-2.5 md:block">
+                <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                   {filtersBody}
                   <p className="ml-auto pb-1 text-xs text-ink-soft">
                     <span className="font-bold text-ink">{listPlaces.length}</span>/
@@ -1390,8 +1526,8 @@ export function PlacesWorkspace({
 
           {view === 'tiers' ? (
             <div className="space-y-4">
-              <div className="hidden rounded-xl border border-line bg-folio/50 px-3 py-2.5 md:block">
-                <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+              <div className="hidden overflow-visible rounded-xl border border-line bg-folio/50 px-3 py-2.5 md:block">
+                <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                   {filtersBody}
                   <p className="ml-auto pb-1 text-xs text-ink-soft">
                     {hasActiveFilters
@@ -2171,7 +2307,7 @@ export function PlacesWorkspace({
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+          <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
             {filtersBody}
           </div>
           <div className="flex gap-2 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -2446,6 +2582,7 @@ function PlaceCard({
   selectMode,
   checked,
   likedBy = [],
+  mySwatch,
   onToggleSelect,
   onOpenImages,
   onFavorite,
@@ -2459,7 +2596,9 @@ function PlaceCard({
   selectMode: boolean
   checked: boolean
   /** Shared list: each person who liked, newest first */
-  likedBy?: { key: string; label: string }[]
+  likedBy?: { key: string; label: string; swatch: LikerSwatch }[]
+  /** Stable color for the signed-in user’s heart */
+  mySwatch?: LikerSwatch
   onToggleSelect: () => void
   onOpenImages: (images: string[], index: number, title?: string) => void
   onFavorite: () => void
@@ -2471,6 +2610,7 @@ function PlaceCard({
   const [menuOpen, setMenuOpen] = useState(false)
   const images = placeImages(place)
   const liked = isLikedByMe(place)
+  const meTone = mySwatch ?? LIKER_SWATCHES[0]!
   const over =
     place.listingKind === 'rent' &&
     moveBudget != null &&
@@ -2489,6 +2629,13 @@ function PlaceCard({
     place.location ||
     (place.street ? place.street : '') ||
     'Location not set'
+
+  const thumbLikers =
+    likedBy.length > 0
+      ? likedBy.slice(0, 4)
+      : liked
+        ? [{ key: 'me', label: 'You', swatch: meTone }]
+        : []
 
   return (
     <article
@@ -2543,15 +2690,32 @@ function PlaceCard({
             className={cn(
               'absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-ink/35 text-white backdrop-blur-sm sm:hidden',
               motion.chip,
-              liked && 'bg-honey/95 text-white',
+              liked && meTone.onFill,
             )}
           >
             <Heart className={cn('h-4 w-4', liked && 'fill-current')} />
           </button>
         ) : null}
-        {liked && !selectMode ? (
-          <span className="pointer-events-none absolute right-1.5 top-1.5 hidden rounded-full bg-honey/95 p-1 text-white shadow-sm sm:block">
-            <Heart className="h-3 w-3 fill-current" />
+        {thumbLikers.length > 0 && !selectMode ? (
+          <span
+            className="pointer-events-none absolute right-1.5 top-1.5 hidden items-center -space-x-1.5 sm:flex"
+            title={
+              likedBy.length
+                ? `Liked by ${likedBy.map((p) => p.label).join(', ')}`
+                : 'Liked'
+            }
+          >
+            {thumbLikers.map((person) => (
+              <span
+                key={person.key}
+                className={cn(
+                  'inline-flex h-6 w-6 items-center justify-center rounded-full shadow-sm ring-2 ring-white/90',
+                  person.swatch.badge,
+                )}
+              >
+                <Heart className="h-3 w-3 fill-current" />
+              </span>
+            ))}
           </span>
         ) : null}
       </div>
@@ -2619,13 +2783,21 @@ function PlaceCard({
                 ) : null}
                 <Button
                   type="button"
-                  variant={liked ? 'honey' : 'secondary'}
-                  className="h-9 min-h-9 rounded-xl px-2.5"
+                  variant="secondary"
+                  className={cn(
+                    'h-9 min-h-9 rounded-xl px-2.5',
+                    liked && meTone.onFill,
+                  )}
                   onClick={onFavorite}
                   aria-pressed={liked}
                   aria-label={liked ? 'Unlike place' : 'Like place'}
                 >
-                  <Heart className={cn('h-3.5 w-3.5', liked && 'fill-current')} />
+                  <Heart
+                    className={cn(
+                      'h-3.5 w-3.5',
+                      liked ? 'fill-current' : meTone.heart,
+                    )}
+                  />
                 </Button>
                 <Button
                   type="button"
@@ -2682,20 +2854,20 @@ function PlaceCard({
             ) : null}
             {likedBy.length > 0 ? (
               <span
-                className="inline-flex max-w-full flex-wrap items-center gap-1 text-[11px] font-bold text-ink"
+                className="inline-flex max-w-full flex-wrap items-center gap-1 text-[11px] font-bold"
                 title={`Liked by ${likedBy.map((p) => p.label).join(', ')}`}
               >
-                <Heart className="h-3 w-3 shrink-0 fill-honey text-honey" />
                 <span className="text-ink-soft">Liked by</span>
-                {likedBy.map((person, i) => (
+                {likedBy.map((person) => (
                   <span
                     key={person.key}
-                    className="rounded-full bg-honey-soft px-2 py-0.5 text-ink"
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5',
+                      person.swatch.chip,
+                    )}
                   >
+                    <Heart className={cn('h-3 w-3 shrink-0', person.swatch.heart)} />
                     {person.label}
-                    {i < likedBy.length - 1 ? (
-                      <span className="sr-only">, </span>
-                    ) : null}
                   </span>
                 ))}
               </span>
