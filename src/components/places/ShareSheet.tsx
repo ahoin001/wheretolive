@@ -4,6 +4,7 @@ import type { CollaborationController } from '../../hooks/useCollaboration'
 import { searchProfiles } from '../../data/collaboration/api'
 import type { ProfileSearchResult } from '../../data/collaboration/types'
 import { Button } from '../ui/Button'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { Field, TextInput } from '../ui/Field'
 
 export function ShareSheet({
@@ -25,6 +26,10 @@ export function ShareSheet({
   const [busyId, setBusyId] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [removeMember, setRemoveMember] = useState<{
+    id: string
+    name: string
+  } | null>(null)
 
   useEffect(() => {
     if (!signedIn) return
@@ -199,8 +204,14 @@ export function ShareSheet({
                         <Button
                           type="button"
                           variant="ghost"
-                          onClick={() => void collab.kickOrLeave(m.id)}
+                          onClick={() =>
+                            setRemoveMember({
+                              id: m.id,
+                              name: m.displayName || m.email || 'this person',
+                            })
+                          }
                           title="Remove"
+                          aria-label={`Remove ${m.displayName || m.email || 'member'}`}
                         >
                           <UserMinus className="h-4 w-4" />
                         </Button>
@@ -222,6 +233,33 @@ export function ShareSheet({
           <p className="mt-4 rounded-xl bg-folio px-3 py-2 text-sm text-ink">{message}</p>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={removeMember != null}
+        title="Remove this person?"
+        description={
+          removeMember
+            ? `${removeMember.name} will lose access to this shared place list.`
+            : undefined
+        }
+        confirmLabel="Remove access"
+        cancelLabel="Cancel"
+        tone="danger"
+        busy={busyId === removeMember?.id}
+        onCancel={() => setRemoveMember(null)}
+        onConfirm={() => {
+          if (!removeMember) return
+          const id = removeMember.id
+          setBusyId(id)
+          void collab
+            .kickOrLeave(id)
+            .then(() => setRemoveMember(null))
+            .catch((e) =>
+              setError(e instanceof Error ? e.message : 'Could not remove member.'),
+            )
+            .finally(() => setBusyId(null))
+        }}
+      />
     </div>
   )
 }

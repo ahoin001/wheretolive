@@ -962,6 +962,18 @@ export function PlacesWorkspace({
                         ) : null}
                         <TagRow labels={place.proTags} tone="pro" className="mt-3" />
                         <TagRow labels={place.concernTags} tone="con" className="mt-2" />
+                        {place.url ? (
+                          <ButtonLink
+                            href={place.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            variant="primary"
+                            className="mt-4 h-10 min-h-10 w-full rounded-xl px-3.5 text-sm"
+                          >
+                            <ExternalLink className="h-4 w-4 shrink-0" />
+                            Open listing
+                          </ButtonLink>
+                        ) : null}
                       </div>
                     </div>
                   )
@@ -1433,6 +1445,26 @@ export function PlacesWorkspace({
           }}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={deleteTarget != null}
+        title="Remove this place?"
+        description={
+          deleteTarget
+            ? `“${deleteTarget.title}” will be removed from your board. This can’t be undone.`
+            : undefined
+        }
+        confirmLabel="Remove place"
+        cancelLabel="Keep place"
+        tone="danger"
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={() => {
+          if (deleteTarget) {
+            deletePlace(deleteTarget.id)
+            setDeleteTarget(null)
+          }
+        }}
+      />
     </div>
   )
 }
@@ -1722,10 +1754,10 @@ function PlaceCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-4 text-sm">
+        <div className="flex flex-wrap items-center gap-3">
           <span
             className={cn(
-              'font-bold',
+              'text-sm font-bold',
               place.listingKind === 'rent'
                 ? over
                   ? 'text-warn'
@@ -1736,7 +1768,7 @@ function PlaceCard({
             {primaryCostLabel(place)}
           </span>
           {place.bedrooms != null || place.bathrooms != null ? (
-            <span className="text-ink-soft">
+            <span className="text-sm text-ink-soft">
               {[
                 place.bedrooms != null ? `${place.bedrooms} bed` : null,
                 place.bathrooms != null ? `${place.bathrooms} bath` : null,
@@ -1746,14 +1778,16 @@ function PlaceCard({
             </span>
           ) : null}
           {place.url ? (
-            <a
+            <ButtonLink
               href={place.url}
               target="_blank"
               rel="noreferrer"
-              className="font-bold text-sea-deep underline-offset-2 hover:underline"
+              variant="primary"
+              className="ml-auto h-10 min-h-10 rounded-xl px-3.5 text-sm shadow-[var(--shadow-soft)] sm:ml-0"
             >
+              <ExternalLink className="h-4 w-4 shrink-0" />
               Open listing
-            </a>
+            </ButtonLink>
           ) : null}
         </div>
 

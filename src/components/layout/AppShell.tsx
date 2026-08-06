@@ -8,12 +8,14 @@ import {
   Upload,
   UserRound,
 } from 'lucide-react'
+import { useState } from 'react'
 import type { AppController } from '../../hooks/useApp'
 import type { AuthController } from '../../hooks/useAuth'
 import type { CollaborationController } from '../../hooks/useCollaboration'
 import type { WizardStepId } from '../../domain/types'
 import { formatMoney } from '../../domain/finance/calculations'
 import { Button } from '../ui/Button'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { cn } from '../../lib/utils'
 
 const STEP_META: { id: WizardStepId; label: string; short: string }[] = [
@@ -42,6 +44,7 @@ export function AppShell({
   onAccountOpenChange: (open: boolean) => void
   children: React.ReactNode
 }) {
+  const [eraseOpen, setEraseOpen] = useState(false)
   const { ui, finance, stepIndex, steps } = app
   const showNav = Boolean(app.scenario) && ui.activeStep !== 'welcome'
   const subtitle = auth.signedIn
@@ -178,14 +181,7 @@ export function AppShell({
             Step {stepIndex + 1} of {steps.length}
           </p>
           <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (confirm('Erase all answers and places saved on this device?')) {
-                  void app.eraseAll()
-                }
-              }}
-            >
+            <Button variant="ghost" onClick={() => setEraseOpen(true)}>
               <Trash2 className="h-4 w-4" />
               Erase
             </Button>
@@ -196,6 +192,20 @@ export function AppShell({
           </div>
         </footer>
       ) : null}
+
+      <ConfirmDialog
+        open={eraseOpen}
+        title="Erase everything on this device?"
+        description="This permanently removes your guide answers and all saved places from this browser. It cannot be undone."
+        confirmLabel="Erase everything"
+        cancelLabel="Cancel"
+        tone="danger"
+        onCancel={() => setEraseOpen(false)}
+        onConfirm={() => {
+          setEraseOpen(false)
+          void app.eraseAll()
+        }}
+      />
     </div>
   )
 }
