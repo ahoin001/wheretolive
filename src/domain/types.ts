@@ -1,0 +1,241 @@
+export type AgeRange =
+  | 'under_50'
+  | '50_54'
+  | '55_59'
+  | '60_64'
+  | '65_69'
+  | '70_plus'
+  | 'prefer_not'
+  | 'not_sure'
+
+export type RetirementPlan =
+  | 'already_retired'
+  | 'within_5'
+  | '5_to_10'
+  | 'over_10'
+  | 'not_planning'
+  | 'not_sure'
+  | 'prefer_not'
+
+export type IncomeDirection =
+  | 'increasing'
+  | 'steady'
+  | 'decreasing'
+  | 'variable'
+  | 'not_sure'
+  | 'prefer_not'
+
+export type Likelihood = 'yes' | 'maybe' | 'no' | 'not_sure' | 'prefer_not'
+
+export type MaintenanceFeel =
+  | 'manageable'
+  | 'sometimes_heavy'
+  | 'often_heavy'
+  | 'not_sure'
+  | 'prefer_not'
+
+export type Attachment =
+  | 'deeply_attached'
+  | 'somewhat_attached'
+  | 'ready_for_change'
+  | 'mixed'
+  | 'not_sure'
+  | 'prefer_not'
+
+export type MoveMode = 'rent' | 'buy'
+
+export type FitLevel = 'strong' | 'possible' | 'closer_look'
+export type ReadinessLevel = 'ready' | 'preparing' | 'exploring'
+export type PathLean = 'keep' | 'downsize' | 'mixed'
+
+export type WizardStepId =
+  | 'welcome'
+  | 'household'
+  | 'today'
+  | 'paths'
+  | 'peace'
+  | 'easier'
+  | 'talk'
+  | 'summary'
+
+export type PlaceTier = 'dream' | 'strong' | 'maybe' | 'pass'
+export type PlaceStatus = 'none' | 'visited' | 'offer'
+export type PlaceListingKind = 'rent' | 'buy'
+/** Whether pets are welcome at this place */
+export type PetsPolicy = 'yes' | 'no' | 'limited'
+
+export interface OwnerProfile {
+  label: string
+  ageRange: AgeRange
+  retirementPlan: RetirementPlan
+  incomeDirection: IncomeDirection
+}
+
+export interface HouseholdAnswers {
+  owners: OwnerProfile[]
+  peopleNow: number
+  peopleSoon: number
+  mayHostAgain: Likelihood
+  accessibilityNeeds: Likelihood
+  maintenanceFeel: MaintenanceFeel
+  supportNearby: Likelihood
+  attachment: Attachment
+  notes: string
+}
+
+export interface CurrentHome {
+  address: string
+  city: string
+  state: string
+  zip: string
+  bedrooms: number
+  bathrooms: number
+  hasYard: boolean
+  loanBalance: number
+  interestRate: number
+  originated: string
+  maturity: string
+  accountFlag: number
+  mortgagePayment: number
+  escrowIncluded: boolean
+  propertyTaxMonthly: number
+  insuranceMonthly: number
+  hoaMonthly: number
+  utilitiesMonthly: number
+  maintenanceMonthly: number
+  miscMonthly: number
+  estimatedValueLow: number
+  estimatedValueMid: number
+  estimatedValueHigh: number
+}
+
+export interface MoveScenario {
+  mode: MoveMode
+  label: string
+  monthlyHousing: number
+  hoaMonthly: number
+  insuranceMonthly: number
+  taxMonthly: number
+  utilitiesMonthly: number
+  maintenanceMonthly: number
+  miscMonthly: number
+  depositOrDown: number
+  closingCosts: number
+  movingCosts: number
+  sellerCostsPercent: number
+  repairsBeforeSale: number
+}
+
+export interface ScenarioPriorities {
+  cashFlow: number
+  spaceFit: number
+  upkeep: number
+  retirementResilience: number
+  futureFlexibility: number
+  emotionalCommunity: number
+}
+
+export interface Scenario {
+  id: string
+  version: number
+  name: string
+  createdAt: string
+  updatedAt: string
+  household: HouseholdAnswers
+  home: CurrentHome
+  move: MoveScenario
+  priorities: ScenarioPriorities
+  conversationNotes: string
+}
+
+export interface InsightSignal {
+  id: string
+  dimension: keyof ScenarioPriorities
+  leans: PathLean
+  strength: 1 | 2 | 3
+  title: string
+  because: string[]
+  suggestion: string
+}
+
+export interface ReadinessResult {
+  pathLean: PathLean
+  keepFit: FitLevel
+  downsizeFit: FitLevel
+  readiness: ReadinessLevel
+  confidence: 'high' | 'medium' | 'low'
+  summary: string
+  keepReasons: InsightSignal[]
+  downsizeReasons: InsightSignal[]
+  missingFacts: string[]
+  nextQuestions: string[]
+}
+
+export interface FinanceBreakdown {
+  stayMonthly: number
+  stayAnnual: number
+  moveMonthly: number
+  moveAnnual: number
+  monthlyDelta: number
+  annualDelta: number
+  equityMid: number
+  netProceedsMid: number
+  cashAfterMoveMid: number
+  fiveYearStay: number
+  fiveYearMove: number
+  stayParts: Record<string, number>
+  moveParts: Record<string, number>
+}
+
+export interface SavedPlace {
+  id: string
+  createdAt: string
+  updatedAt: string
+  title: string
+  url: string
+  listingKind: PlaceListingKind
+  /** Purchase list price — used when listingKind is buy */
+  price: number | null
+  /** Monthly rent when listingKind is rent; null for buy listings */
+  monthlyEstimate: number | null
+  location: string
+  bedrooms: number | null
+  bathrooms: number | null
+  notes: string
+  /** Whether pets are allowed */
+  pets: PetsPolicy
+  /** Optional one-line pet rules (size, breed, deposit, etc.) */
+  petsNote: string
+  /** Selected pro chips / custom labels */
+  proTags: string[]
+  /** Selected concern chips / custom labels */
+  concernTags: string[]
+  tier: PlaceTier
+  status: PlaceStatus
+  favorite: boolean
+  /** One or more photo URLs (first is primary) */
+  images: string[]
+  tags: string[]
+}
+
+export interface AppData {
+  version: number
+  scenario: Scenario | null
+  places: SavedPlace[]
+  ui: {
+    activeStep: WizardStepId
+    mode: 'guide' | 'places'
+    completedSteps: WizardStepId[]
+  }
+}
+
+export const DATA_VERSION = 1
+
+export const DEFAULT_PRIORITIES: ScenarioPriorities = {
+  cashFlow: 5,
+  spaceFit: 4,
+  upkeep: 4,
+  retirementResilience: 5,
+  futureFlexibility: 3,
+  emotionalCommunity: 4,
+}

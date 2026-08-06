@@ -1,0 +1,1637 @@
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { Heart, Plus, Trash2, X } from 'lucide-react'
+import type { AppController } from '../../hooks/useApp'
+import type {
+  PetsPolicy,
+  PlaceListingKind,
+  PlaceStatus,
+  PlaceTier,
+  SavedPlace,
+} from '../../domain/types'
+import { formatMoney } from '../../domain/finance/calculations'
+import { cn } from '../../lib/utils'
+import { Button } from '../ui/Button'
+import { ChoiceGroup } from '../ui/ChoiceGroup'
+import { CurrencyInput, Field, NumberInput, TextInput, TextTextarea } from '../ui/Field'
+import { DualRangeSlider, padBounds } from './DualRangeSlider'
+import { ImageLightbox, OpenableImage } from './ImageLightbox'
+
+const TIERS: PlaceTier[] = ['dream', 'strong', 'maybe', 'pass']
+const TIER_LABEL: Record<PlaceTier, string> = {
+  dream: 'Dream',
+  strong: 'Strong yes',
+  maybe: 'Maybe',
+  pass: 'Pass',
+}
+
+const PRO_SUGGESTIONS = [
+  'Yard',
+  'Patio',
+  'Modern',
+  'Natural light',
+  'Spacious',
+  'Updated kitchen',
+  'Quiet street',
+  'Garage',
+  'Pool',
+  'Walkable',
+  'Near family',
+  'Single story',
+  'Guest room',
+  'Low maint.',
+  'Storage',
+  'Good schools nearby',
+]
+
+const CONCERN_SUGGESTIONS = [
+  'Too small',
+  'Stairs',
+  'No parking',
+  'Traffic noise',
+  'Older systems',
+  'High HOA',
+  'Far from family',
+  'Needs work',
+  'Limited light',
+  'No outdoor space',
+  'Flood risk',
+  'Busy complex',
+  'HOA rules',
+  'Too expensive',
+]
+
+const PETS_LABEL: Record<PetsPolicy, string> = {
+  yes: 'Pets OK',
+  limited: 'Pets limited',
+  no: 'No pets',
+}
+
+const STATUS_LABEL: Record<PlaceStatus, string> = {
+  none: 'Not marked',
+  visited: 'Visited',
+  offer: 'Offer',
+}
+
+function allowsPets(place: Pick<SavedPlace, 'pets'>): boolean {
+  return place.pets === 'yes' || place.pets === 'limited'
+}
+
+type PlaceForm = Omit<SavedPlace, 'id' | 'createdAt' | 'updatedAt'>
+
+const emptyForm = (): PlaceForm => ({
+  title: '',
+  url: '',
+  listingKind: 'rent',
+  price: null,
+  monthlyEstimate: null,
+  location: '',
+  bedrooms: null,
+  bathrooms: null,
+  notes: '',
+  pets: 'no',
+  petsNote: '',
+  proTags: [],
+  concernTags: [],
+  tier: 'maybe',
+  status: 'none',
+  favorite: false,
+  images: [],
+  tags: [],
+})
+
+function formFromPlace(place: SavedPlace): PlaceForm {
+  const { id: _i, createdAt: _c, updatedAt: _u, ...rest } = place
+  return {
+    ...emptyForm(),
+    ...rest,
+    listingKind: rest.listingKind ?? 'rent',
+    pets: rest.pets === 'yes' || rest.pets === 'limited' ? rest.pets : 'no',
+    petsNote: rest.petsNote ?? '',
+    proTags: rest.proTags ?? [],
+    concernTags: rest.concernTags ?? [],
+    images: rest.images ?? [],
+    status:
+      rest.status === 'visited' || rest.status === 'offer' ? rest.status : 'none',
+  }
+}
+
+function placeImages(place: SavedPlace): string[] {
+  return Array.isArray(place.images) ? place.images.filter(Boolean) : []
+}
+
+function sortByFavoriteThenRecent(a: SavedPlace, b: SavedPlace): number {
+  if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+  return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+}
+
+type ListSort =
+  | 'featured'
+  | 'monthly_asc'
+  | 'monthly_desc'
+  | 'list_asc'
+  | 'list_desc'
+
+function monthlyCost(place: SavedPlace): number | null {
+  return place.monthlyEstimate != null && Number.isFinite(place.monthlyEstimate)
+    ? place.monthlyEstimate
+    : null
+}
+
+function listPrice(place: SavedPlace): number | null {
+  return place.price != null && Number.isFinite(place.price) ? place.price : null
+}
+
+/** First comma segment is treated as city; pure ZIPs are ignored. */
+function cityFromLocation(location: string | null | undefined): string | null {
+  const trimmed = (location ?? '').trim()
+  if (!trimmed) return null
+  const first = trimmed.split(',')[0]?.trim() ?? ''
+  if (!first) return null
+  if (/^\d{5}(-\d{4})?$/.test(first)) return null
+  return first
+}
+
+function cityKey(city: string): string {
+  return city.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+function placeCityKey(place: Pick<SavedPlace, 'location'>): string | null {
+  const city = cityFromLocation(place.location)
+  return city ? cityKey(city) : null
+}
+
+function citiesFromPlaces(
+  places: SavedPlace[],
+): { key: string; label: string; count: number }[] {
+  const map = new Map<string, { label: string; count: number }>()
+  for (const place of places) {
+    const city = cityFromLocation(place.location)
+    if (!city) continue
+    const key = cityKey(city)
+    const existing = map.get(key)
+    if (existing) {
+      existing.count += 1
+    } else {
+      map.set(key, { label: city, count: 1 })
+    }
+  }
+  return [...map.entries()]
+    .map(([key, value]) => ({ key, label: value.label, count: value.count }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
+}
+
+function placeMatchesCities(place: SavedPlace, selectedKeys: string[]): boolean {
+  if (!selectedKeys.length) return true
+  const key = placeCityKey(place)
+  return key != null && selectedKeys.includes(key)
+}
+
+function sortPlaces(
+  places: SavedPlace[],
+  sort: ListSort,
+  monthlyRange: { min: number; max: number } | null,
+  listRange: { min: number; max: number } | null,
+  petsOnly: boolean,
+  cityKeys: string[],
+  monthlyBounds: { min: number; max: number } | null,
+  listBounds: { min: number; max: number } | null,
+): SavedPlace[] {
+  let next = [...places]
+
+  const monthlyActive =
+    monthlyRange &&
+    monthlyBounds &&
+    (monthlyRange.min > monthlyBounds.min || monthlyRange.max < monthlyBounds.max)
+  const listActive =
+    listRange &&
+    listBounds &&
+    (listRange.min > listBounds.min || listRange.max < listBounds.max)
+
+  next = next.filter((p) => {
+    if (petsOnly && !allowsPets(p)) return false
+    if (!placeMatchesCities(p, cityKeys)) return false
+
+    if (monthlyActive && monthlyRange) {
+      const monthly = monthlyCost(p)
+      if (monthly == null) return false
+      if (monthly < monthlyRange.min || monthly > monthlyRange.max) return false
+    }
+
+    if (listActive && listRange) {
+      if (p.listingKind === 'rent') return true
+      const list = listPrice(p)
+      if (list == null) return false
+      if (list < listRange.min || list > listRange.max) return false
+    }
+    return true
+  })
+
+  const byMissingLast = (value: number | null, dir: 1 | -1) => {
+    if (value == null) return Number.POSITIVE_INFINITY
+    return dir === 1 ? value : -value
+  }
+
+  next.sort((a, b) => {
+    if (sort === 'monthly_asc') {
+      return byMissingLast(monthlyCost(a), 1) - byMissingLast(monthlyCost(b), 1)
+    }
+    if (sort === 'monthly_desc') {
+      return byMissingLast(monthlyCost(a), -1) - byMissingLast(monthlyCost(b), -1)
+    }
+    if (sort === 'list_asc') {
+      return byMissingLast(listPrice(a), 1) - byMissingLast(listPrice(b), 1)
+    }
+    if (sort === 'list_desc') {
+      return byMissingLast(listPrice(a), -1) - byMissingLast(listPrice(b), -1)
+    }
+    if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+    return (Date.parse(b.updatedAt) || 0) - (Date.parse(a.updatedAt) || 0)
+  })
+
+  return next
+}
+
+export function PlacesWorkspace({ app }: { app: AppController }) {
+  const [form, setForm] = useState<PlaceForm>(emptyForm())
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [view, setView] = useState<'list' | 'tiers' | 'compare'>('list')
+  const [compareIds, setCompareIds] = useState<string[]>([])
+  const [imageDraft, setImageDraft] = useState('')
+  const [formOpen, setFormOpen] = useState(false)
+  const [listSort, setListSort] = useState<ListSort>('featured')
+  const [monthlyRange, setMonthlyRange] = useState<{ min: number; max: number } | null>(
+    null,
+  )
+  const [listRange, setListRange] = useState<{ min: number; max: number } | null>(null)
+  const [petsOnly, setPetsOnly] = useState(false)
+  const [cityKeys, setCityKeys] = useState<string[]>([])
+  const [lightbox, setLightbox] = useState<{
+    images: string[]
+    index: number
+    title?: string
+  } | null>(null)
+
+  const openLightbox = (images: string[], index = 0, title?: string) => {
+    const clean = images.filter(Boolean)
+    if (!clean.length) return
+    setLightbox({
+      images: clean,
+      index: Math.min(Math.max(0, index), clean.length - 1),
+      title,
+    })
+  }
+
+  const moveBudget = app.finance?.moveMonthly ?? null
+
+  const availableCities = useMemo(() => citiesFromPlaces(app.places), [app.places])
+
+  // Drop city selections that no longer exist in saved places
+  const activeCityKeys = useMemo(() => {
+    if (!cityKeys.length) return [] as string[]
+    const known = new Set(availableCities.map((c) => c.key))
+    return cityKeys.filter((key) => known.has(key))
+  }, [cityKeys, availableCities])
+
+  const monthlyBounds = useMemo(() => {
+    const values = app.places
+      .map(monthlyCost)
+      .filter((n): n is number => n != null && n > 0)
+    if (!values.length) return null
+    return padBounds(values)
+  }, [app.places])
+
+  const listBounds = useMemo(() => {
+    const values = app.places
+      .filter((p) => p.listingKind === 'buy')
+      .map(listPrice)
+      .filter((n): n is number => n != null && n > 0)
+    if (!values.length) return null
+    return padBounds(values)
+  }, [app.places])
+
+  // Keep slider selection aligned when data bounds change
+  const monthlySelection = useMemo(() => {
+    if (!monthlyBounds) return null
+    if (!monthlyRange) return { min: monthlyBounds.min, max: monthlyBounds.max }
+    return {
+      min: Math.min(
+        monthlyBounds.max,
+        Math.max(monthlyBounds.min, monthlyRange.min),
+      ),
+      max: Math.min(
+        monthlyBounds.max,
+        Math.max(monthlyBounds.min, monthlyRange.max),
+      ),
+    }
+  }, [monthlyBounds, monthlyRange])
+
+  const listSelection = useMemo(() => {
+    if (!listBounds) return null
+    if (!listRange) return { min: listBounds.min, max: listBounds.max }
+    return {
+      min: Math.min(listBounds.max, Math.max(listBounds.min, listRange.min)),
+      max: Math.min(listBounds.max, Math.max(listBounds.min, listRange.max)),
+    }
+  }, [listBounds, listRange])
+
+  const listPlaces = useMemo(() => {
+    return sortPlaces(
+      app.places,
+      listSort,
+      monthlySelection,
+      listSelection,
+      petsOnly,
+      activeCityKeys,
+      monthlyBounds
+        ? { min: monthlyBounds.min, max: monthlyBounds.max }
+        : null,
+      listBounds ? { min: listBounds.min, max: listBounds.max } : null,
+    )
+  }, [
+    app.places,
+    listSort,
+    monthlySelection,
+    listSelection,
+    petsOnly,
+    activeCityKeys,
+    monthlyBounds,
+    listBounds,
+  ])
+
+  const boardPlaces = useMemo(() => {
+    let base = app.places
+    if (petsOnly) base = base.filter(allowsPets)
+    if (activeCityKeys.length) {
+      base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
+    }
+    return [...base].sort(sortByFavoriteThenRecent)
+  }, [app.places, petsOnly, activeCityKeys])
+
+  const monthlyRangeActive =
+    Boolean(
+      monthlyBounds &&
+        monthlySelection &&
+        (monthlySelection.min > monthlyBounds.min ||
+          monthlySelection.max < monthlyBounds.max),
+    )
+  const listRangeActive =
+    Boolean(
+      listBounds &&
+        listSelection &&
+        (listSelection.min > listBounds.min || listSelection.max < listBounds.max),
+    )
+
+  const cityFilterActive = activeCityKeys.length > 0
+  const hasActiveFilters =
+    monthlyRangeActive || listRangeActive || petsOnly || cityFilterActive
+
+  const clearPriceFilters = () => {
+    setMonthlyRange(null)
+    setListRange(null)
+  }
+
+  const clearAllFilters = () => {
+    setListSort('featured')
+    setPetsOnly(false)
+    setCityKeys([])
+    clearPriceFilters()
+  }
+
+  const toggleCity = (key: string) => {
+    setCityKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    )
+  }
+
+  const save = () => {
+    if (!form.title.trim() && !form.url.trim()) {
+      alert('Add a title or listing link first.')
+      return
+    }
+    const now = new Date().toISOString()
+    const place: SavedPlace = {
+      id: editingId ?? crypto.randomUUID(),
+      createdAt: editingId
+        ? app.places.find((p) => p.id === editingId)?.createdAt || now
+        : now,
+      updatedAt: now,
+      ...form,
+      price: form.listingKind === 'buy' ? form.price : null,
+      // Price only: rent uses monthly; buy uses list price (no estimated monthly).
+      monthlyEstimate: form.listingKind === 'rent' ? form.monthlyEstimate : null,
+      pets: form.pets === 'yes' || form.pets === 'limited' ? form.pets : 'no',
+      petsNote: form.pets === 'no' ? '' : form.petsNote,
+      proTags: form.proTags,
+      concernTags: form.concernTags,
+      images: form.images.filter(Boolean),
+    }
+    app.upsertPlace(place)
+    setForm(emptyForm())
+    setEditingId(null)
+    setImageDraft('')
+    setFormOpen(false)
+  }
+
+  const startEdit = (place: SavedPlace) => {
+    setEditingId(place.id)
+    setForm(formFromPlace(place))
+    setFormOpen(true)
+    setImageDraft('')
+  }
+
+  const closeForm = () => {
+    setFormOpen(false)
+    setEditingId(null)
+    setForm(emptyForm())
+    setImageDraft('')
+  }
+
+  const openNewPlace = () => {
+    setEditingId(null)
+    setForm(emptyForm())
+    setFormOpen(true)
+    setImageDraft('')
+  }
+
+  useEffect(() => {
+    if (!formOpen) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !lightbox) closeForm()
+    }
+    window.addEventListener('keydown', onKey)
+    // Focus the panel for keyboard users
+    window.setTimeout(() => {
+      document.getElementById('place-form-title')?.focus()
+    }, 40)
+    return () => {
+      document.body.style.overflow = prev
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [formOpen, lightbox])
+
+  const addImageUrl = () => {
+    const url = imageDraft.trim()
+    if (!url) return
+    setForm((f) =>
+      f.images.includes(url) ? f : { ...f, images: [...f.images, url] },
+    )
+    setImageDraft('')
+  }
+
+  const isRent = form.listingKind === 'rent'
+
+  return (
+    <div className="space-y-6">
+      <header className="flex flex-wrap items-center justify-between gap-3 rounded-[1.75rem] border border-line bg-panel px-5 py-4 shadow-[var(--shadow-soft)] md:px-7">
+        <h1 className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
+          Places
+        </h1>
+        <Button variant="honey" onClick={openNewPlace}>
+          <Plus className="h-4 w-4" />
+          Add place
+        </Button>
+      </header>
+
+      <section className="rounded-[1.75rem] border border-line bg-panel p-4 shadow-[var(--shadow-soft)] md:p-6">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line pb-4">
+          {(['list', 'tiers', 'compare'] as const).map((mode) => (
+            <Button
+              key={mode}
+              variant={view === mode ? 'primary' : 'secondary'}
+              onClick={() => setView(mode)}
+            >
+              {mode === 'list' ? 'List' : mode === 'tiers' ? 'Tier board' : 'Compare'}
+            </Button>
+          ))}
+          {view === 'compare' && moveBudget != null ? (
+            <span className="ml-auto text-sm text-ink-soft">
+              Move budget: <strong className="text-ink">{formatMoney(moveBudget)}</strong>/mo
+            </span>
+          ) : null}
+        </div>
+
+        <div className="mt-5">
+          {view === 'list' ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-line bg-folio/50 p-4 md:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <label className="flex w-full min-w-[14rem] flex-col gap-1.5 lg:max-w-xs">
+                    <span className="text-sm font-bold text-ink">Sort</span>
+                    <select
+                      value={listSort}
+                      onChange={(e) => setListSort(e.target.value as ListSort)}
+                      className="min-h-11 rounded-2xl border border-line bg-panel px-4 text-base text-ink"
+                    >
+                      <option value="featured">Favorites & recent first</option>
+                      <option value="monthly_asc">Rent · low to high</option>
+                      <option value="monthly_desc">Rent · high to low</option>
+                      <option value="list_asc">List price · low to high</option>
+                      <option value="list_desc">List price · high to low</option>
+                    </select>
+                  </label>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={petsOnly}
+                      onClick={() => setPetsOnly((v) => !v)}
+                      className={cn(
+                        'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold transition',
+                        petsOnly
+                          ? 'border-sea bg-sea text-white'
+                          : 'border-line bg-panel text-ink hover:border-sea',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'inline-flex h-5 w-9 items-center rounded-full px-0.5',
+                          petsOnly ? 'bg-white/25' : 'bg-line',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'h-4 w-4 rounded-full bg-white transition',
+                            petsOnly ? 'translate-x-4' : 'translate-x-0',
+                          )}
+                        />
+                      </span>
+                      Pets allowed
+                    </button>
+                    <p className="text-sm text-ink-soft">
+                      <span className="font-bold text-ink">{listPlaces.length}</span> of{' '}
+                      {app.places.length} places
+                      {hasActiveFilters ? ' match filters' : ''}
+                    </p>
+                  </div>
+                </div>
+
+                {availableCities.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-sm font-bold text-ink">City</p>
+                    <p className="mt-0.5 text-xs text-ink-soft">
+                      From locations on your saved places. Tap one or more.
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCityKeys([])}
+                        aria-pressed={!cityFilterActive}
+                        className={cn(
+                          'h-10 rounded-full border px-3.5 text-sm font-bold transition',
+                          !cityFilterActive
+                            ? 'border-sea bg-sea text-white shadow-[var(--shadow-soft)]'
+                            : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+                        )}
+                      >
+                        All cities
+                      </button>
+                      {availableCities.map((city) => {
+                        const on = activeCityKeys.includes(city.key)
+                        return (
+                          <button
+                            key={city.key}
+                            type="button"
+                            onClick={() => toggleCity(city.key)}
+                            aria-pressed={on}
+                            className={cn(
+                              'h-10 rounded-full border px-3.5 text-sm font-bold transition',
+                              on
+                                ? 'border-sea bg-sea text-white shadow-[var(--shadow-soft)]'
+                                : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+                            )}
+                          >
+                            {city.label}
+                            <span
+                              className={cn(
+                                'ml-1.5 tabular-nums',
+                                on ? 'text-white/80' : 'text-ink-soft',
+                              )}
+                            >
+                              {city.count}
+                            </span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                {monthlyBounds || listBounds ? (
+                  <div
+                    className={cn(
+                      'mt-4 grid gap-3',
+                      monthlyBounds && listBounds ? 'lg:grid-cols-2' : 'grid-cols-1',
+                    )}
+                  >
+                    {monthlyBounds ? (
+                      <DualRangeSlider
+                        label="Rent"
+                        min={monthlyBounds.min}
+                        max={monthlyBounds.max}
+                        step={monthlyBounds.step}
+                        valueMin={monthlySelection?.min ?? monthlyBounds.min}
+                        valueMax={monthlySelection?.max ?? monthlyBounds.max}
+                        onChange={setMonthlyRange}
+                        formatValue={(n) => `${formatMoney(n)}/mo`}
+                      />
+                    ) : null}
+                    {listBounds ? (
+                      <DualRangeSlider
+                        label="List price"
+                        min={listBounds.min}
+                        max={listBounds.max}
+                        step={listBounds.step}
+                        valueMin={listSelection?.min ?? listBounds.min}
+                        valueMax={listSelection?.max ?? listBounds.max}
+                        onChange={setListRange}
+                      />
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {(hasActiveFilters || listSort !== 'featured') && (
+                  <div className="mt-3 flex justify-end">
+                    <Button variant="ghost" onClick={clearAllFilters}>
+                      Reset sort & filters
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {listPlaces.length === 0 ? (
+                app.places.length === 0 ? (
+                  <EmptyPlaces onAdd={openNewPlace} />
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-line bg-folio/60 px-6 py-10 text-center">
+                    <p className="font-display text-xl font-semibold text-ink">
+                      No places match these filters
+                    </p>
+                    <p className="mt-2 text-ink-soft">
+                      Widen price ranges, pick more cities, turn off pets-only, or reset.
+                    </p>
+                    <Button
+                      className="mt-4"
+                      variant="secondary"
+                      onClick={() => {
+                        setPetsOnly(false)
+                        clearPriceFilters()
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  </div>
+                )
+              ) : (
+                <div className="space-y-3">
+                  {listPlaces.map((place) => (
+                    <PlaceCard
+                      key={place.id}
+                      place={place}
+                      moveBudget={moveBudget}
+                      selected={compareIds.includes(place.id)}
+                      onOpenImages={openLightbox}
+                      onToggleCompare={() =>
+                        setCompareIds((ids) =>
+                          ids.includes(place.id)
+                            ? ids.filter((id) => id !== place.id)
+                            : [...ids, place.id].slice(0, 3),
+                        )
+                      }
+                      onFavorite={() =>
+                        app.upsertPlace({
+                          ...place,
+                          favorite: !place.favorite,
+                          updatedAt: new Date().toISOString(),
+                        })
+                      }
+                      onEdit={() => startEdit(place)}
+                      onDelete={() => {
+                        if (confirm('Remove this saved place?')) app.removePlace(place.id)
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {view === 'tiers' ? (
+            <div className="space-y-5">
+              <div className="space-y-3 rounded-2xl border border-line bg-folio/50 px-4 py-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={petsOnly}
+                    onClick={() => setPetsOnly((v) => !v)}
+                    className={cn(
+                      'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold transition',
+                      petsOnly
+                        ? 'border-sea bg-sea text-white'
+                        : 'border-line bg-panel text-ink hover:border-sea',
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        'inline-flex h-5 w-9 items-center rounded-full px-0.5',
+                        petsOnly ? 'bg-white/25' : 'bg-line',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'h-4 w-4 rounded-full bg-white transition',
+                          petsOnly ? 'translate-x-4' : 'translate-x-0',
+                        )}
+                      />
+                    </span>
+                    Pets allowed
+                  </button>
+                  <p className="text-sm text-ink-soft">
+                    {petsOnly || cityFilterActive
+                      ? `Showing ${boardPlaces.length} place${boardPlaces.length === 1 ? '' : 's'}`
+                      : `${boardPlaces.length} places`}
+                  </p>
+                </div>
+
+                {availableCities.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setCityKeys([])}
+                      aria-pressed={!cityFilterActive}
+                      className={cn(
+                        'h-9 rounded-full border px-3 text-sm font-bold transition',
+                        !cityFilterActive
+                          ? 'border-sea bg-sea text-white'
+                          : 'border-line bg-panel text-ink hover:border-sea',
+                      )}
+                    >
+                      All cities
+                    </button>
+                    {availableCities.map((city) => {
+                      const on = activeCityKeys.includes(city.key)
+                      return (
+                        <button
+                          key={city.key}
+                          type="button"
+                          onClick={() => toggleCity(city.key)}
+                          aria-pressed={on}
+                          className={cn(
+                            'h-9 rounded-full border px-3 text-sm font-bold transition',
+                            on
+                              ? 'border-sea bg-sea text-white'
+                              : 'border-line bg-panel text-ink hover:border-sea',
+                          )}
+                        >
+                          {city.label}
+                          <span
+                            className={cn(
+                              'ml-1.5 tabular-nums',
+                              on ? 'text-white/80' : 'text-ink-soft',
+                            )}
+                          >
+                            {city.count}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              {TIERS.map((tier) => {
+                const placesInTier = boardPlaces.filter((p) => p.tier === tier)
+                return (
+                  <div
+                    key={tier}
+                    className="rounded-2xl border border-line bg-folio/70 p-4 md:p-5"
+                  >
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="font-display text-xl font-semibold text-ink">
+                        {TIER_LABEL[tier]}
+                      </h3>
+                      <span className="text-sm font-bold text-ink-soft">
+                        {placesInTier.length}{' '}
+                        {placesInTier.length === 1 ? 'place' : 'places'}
+                      </span>
+                    </div>
+
+                    {placesInTier.length === 0 ? (
+                      <p className="mt-3 text-sm text-ink-soft">Nothing here yet.</p>
+                    ) : (
+                      <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
+                        {placesInTier.map((place) => {
+                          const images = placeImages(place)
+                          return (
+                            <div
+                              key={place.id}
+                              className="w-52 shrink-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-soft)] transition hover:border-sea"
+                            >
+                              {images[0] ? (
+                                <OpenableImage
+                                  images={images}
+                                  index={0}
+                                  title={place.title || 'Untitled'}
+                                  onOpen={openLightbox}
+                                  className="h-28 w-full"
+                                  imgClassName="h-28"
+                                />
+                              ) : (
+                                <div className="flex h-28 items-center justify-center bg-folio text-sm text-ink-soft">
+                                  No photo
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => startEdit(place)}
+                                className="w-full p-3 text-left"
+                              >
+                                <p className="line-clamp-2 font-bold text-ink">
+                                  {place.title || 'Untitled'}
+                                </p>
+                                <p className="mt-1 text-sm text-ink-soft">
+                                  {primaryCostLabel(place)}
+                                </p>
+                                <PetsBadge pets={place.pets ?? 'no'} className="mt-2" />
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : null}
+
+          {view === 'compare' ? (
+            compareIds.length === 0 ? (
+              <p className="text-ink-soft">
+                From List, tap <strong>Compare</strong> on up to 3 places.
+              </p>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-3">
+                {compareIds.map((id) => {
+                  const place = app.places.find((p) => p.id === id)
+                  if (!place) return null
+                  const images = placeImages(place)
+                  const overBudget =
+                    place.listingKind === 'rent' &&
+                    moveBudget != null &&
+                    place.monthlyEstimate != null &&
+                    place.monthlyEstimate > moveBudget
+                  return (
+                    <div key={id} className="overflow-hidden rounded-2xl bg-folio">
+                      {images[0] ? (
+                        <OpenableImage
+                          images={images}
+                          index={0}
+                          title={place.title || 'Untitled'}
+                          onOpen={openLightbox}
+                          className="h-36 w-full"
+                          imgClassName="h-36"
+                        />
+                      ) : null}
+                      <div className="p-4">
+                        <p className="font-bold text-ink">{place.title || 'Untitled'}</p>
+                        <p className="mt-1 text-sm text-ink-soft">{place.location}</p>
+                        <PetsBadge
+                          pets={place.pets ?? 'no'}
+                          note={place.petsNote}
+                          className="mt-2"
+                        />
+                        <p className="mt-3 text-lg font-bold">{primaryCostLabel(place)}</p>
+                        {place.listingKind === 'rent' &&
+                        place.monthlyEstimate != null &&
+                        moveBudget != null ? (
+                          <p
+                            className={cn(
+                              'mt-1 text-sm font-bold',
+                              overBudget ? 'text-warn' : 'text-move',
+                            )}
+                          >
+                            {overBudget ? 'Above move budget' : 'Within move budget'}
+                          </p>
+                        ) : null}
+                        <TagRow labels={place.proTags} tone="pro" className="mt-3" />
+                        <TagRow labels={place.concernTags} tone="con" className="mt-2" />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          ) : null}
+        </div>
+      </section>
+
+      {formOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[80] flex justify-end">
+              <button
+                type="button"
+                className="absolute inset-0 bg-ink/45 backdrop-blur-[2px]"
+                aria-label="Discard and close form"
+                onClick={closeForm}
+              />
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="place-form-title"
+                className="relative flex h-full w-full max-w-3xl flex-col bg-panel shadow-[var(--shadow-lift)] sm:max-w-2xl lg:max-w-3xl"
+              >
+                <header className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b border-line bg-panel/95 px-4 py-4 backdrop-blur md:px-6">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-sea-deep">
+                      {editingId ? 'Editing' : 'New place'}
+                    </p>
+                    <h2
+                      id="place-form-title"
+                      tabIndex={-1}
+                      className="font-display text-2xl font-semibold text-ink outline-none md:text-3xl"
+                    >
+                      {editingId
+                        ? form.title.trim() || 'Edit saved place'
+                        : 'Add a place'}
+                    </h2>
+                    <p className="mt-1 text-sm text-ink-soft">
+                      Fill in what you know — you can come back and update anytime.
+                    </p>
+                  </div>
+                  <Button variant="ghost" onClick={closeForm} aria-label="Close form">
+                    <X className="h-5 w-5" />
+                    <span className="hidden sm:inline">Close</span>
+                  </Button>
+                </header>
+
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 md:px-6">
+                  <div className="mx-auto max-w-xl space-y-5 pb-8">
+                    {/* Type */}
+                    <FormSection>
+                      <ChoiceGroup
+                        legend="Listing type"
+                        size="compact"
+                        options={[
+                          { value: 'rent', label: 'Rental' },
+                          { value: 'buy', label: 'Home to buy' },
+                        ] as { value: PlaceListingKind; label: string }[]}
+                        value={form.listingKind}
+                        onChange={(listingKind) =>
+                          setForm((f) => ({
+                            ...f,
+                            listingKind,
+                            price: listingKind === 'rent' ? null : f.price,
+                            monthlyEstimate:
+                              listingKind === 'buy' ? null : f.monthlyEstimate,
+                          }))
+                        }
+                        columns={2}
+                      />
+                    </FormSection>
+
+                    {/* Basics */}
+                    <FormSection>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <Field label="Listing URL" className="sm:col-span-2">
+                          <TextInput
+                            value={form.url}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, url: e.target.value }))
+                            }
+                            placeholder="https://…"
+                          />
+                        </Field>
+                        <Field label="Title" className="sm:col-span-2">
+                          <TextInput
+                            value={form.title}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, title: e.target.value }))
+                            }
+                            placeholder={
+                              isRent ? 'Bright 2-bed apartment' : 'Sunny townhome'
+                            }
+                          />
+                        </Field>
+                        <Field label="Location" className="sm:col-span-2">
+                          <TextInput
+                            value={form.location}
+                            onChange={(e) =>
+                              setForm((f) => ({ ...f, location: e.target.value }))
+                            }
+                            placeholder="City, neighborhood, or ZIP"
+                          />
+                        </Field>
+                      </div>
+                    </FormSection>
+
+                    {/* Price — rent = monthly; buy = list. Sort/filter use these. */}
+                    <FormSection>
+                      {isRent ? (
+                        <Field label="Monthly rent">
+                          <CurrencyInput
+                            value={form.monthlyEstimate ?? 0}
+                            onChange={(monthlyEstimate) =>
+                              setForm((f) => ({ ...f, monthlyEstimate }))
+                            }
+                          />
+                        </Field>
+                      ) : (
+                        <Field label="List price">
+                          <CurrencyInput
+                            value={form.price ?? 0}
+                            onChange={(price) => setForm((f) => ({ ...f, price }))}
+                          />
+                        </Field>
+                      )}
+                    </FormSection>
+
+                    {/* Layout */}
+                    <FormSection>
+                      <div className="grid grid-cols-2 gap-4">
+                        <Field label="Beds">
+                          <NumberInput
+                            value={form.bedrooms ?? 0}
+                            onChange={(bedrooms) =>
+                              setForm((f) => ({ ...f, bedrooms }))
+                            }
+                          />
+                        </Field>
+                        <Field label="Baths">
+                          <NumberInput
+                            value={form.bathrooms ?? 0}
+                            onChange={(bathrooms) =>
+                              setForm((f) => ({ ...f, bathrooms }))
+                            }
+                          />
+                        </Field>
+                      </div>
+                    </FormSection>
+
+                    {/* Organize */}
+                    <FormSection>
+                      <div className="space-y-4">
+                        <ChoiceGroup
+                          legend="Tier"
+                          size="compact"
+                          options={TIERS.map((tier) => ({
+                            value: tier,
+                            label: TIER_LABEL[tier],
+                          }))}
+                          value={form.tier}
+                          onChange={(tier) => setForm((f) => ({ ...f, tier }))}
+                          columns={4}
+                        />
+                        <ChoiceGroup
+                          legend="Status"
+                          size="compact"
+                          options={[
+                            { value: 'none', label: 'Not marked' },
+                            { value: 'visited', label: 'Visited' },
+                            { value: 'offer', label: 'Offer' },
+                          ] as { value: PlaceStatus; label: string }[]}
+                          value={form.status}
+                          onChange={(status) => setForm((f) => ({ ...f, status }))}
+                          columns={3}
+                        />
+                      </div>
+                    </FormSection>
+
+                    {/* Pets */}
+                    <FormSection>
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-bold leading-5 text-ink">
+                              Pets allowed
+                            </p>
+                            <p className="text-xs text-ink-soft">
+                              {form.pets === 'no'
+                                ? 'Default is no. Turn on for pet-friendly places.'
+                                : 'Add rules or deposit notes if you know them.'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={form.pets !== 'no'}
+                            aria-label="Pets allowed"
+                            onClick={() =>
+                              setForm((f) =>
+                                f.pets === 'no'
+                                  ? { ...f, pets: 'yes' }
+                                  : { ...f, pets: 'no', petsNote: '' },
+                              )
+                            }
+                            className={cn(
+                              'inline-flex h-8 w-14 shrink-0 items-center rounded-full px-1 transition',
+                              form.pets !== 'no' ? 'bg-sea' : 'bg-line',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'h-6 w-6 rounded-full bg-white shadow-sm transition',
+                                form.pets !== 'no' ? 'translate-x-6' : 'translate-x-0',
+                              )}
+                            />
+                          </button>
+                        </div>
+
+                        {form.pets !== 'no' ? (
+                          <div className="space-y-4 border-t border-line pt-4">
+                            <ChoiceGroup
+                              legend={
+                                isRent
+                                  ? 'How flexible for pets?'
+                                  : 'HOA / community pet rules'
+                              }
+                              size="compact"
+                              options={[
+                                { value: 'yes', label: 'Pets welcome' },
+                                { value: 'limited', label: 'Limited / rules' },
+                              ] as { value: PetsPolicy; label: string }[]}
+                              value={form.pets === 'limited' ? 'limited' : 'yes'}
+                              onChange={(pets) => setForm((f) => ({ ...f, pets }))}
+                              columns={2}
+                            />
+                            <Field
+                              label="Pet details"
+                              hint={
+                                isRent
+                                  ? 'Deposit, pet rent, size limits…'
+                                  : 'Breed rules, HOA limits…'
+                              }
+                            >
+                              <TextInput
+                                value={form.petsNote}
+                                onChange={(e) =>
+                                  setForm((f) => ({ ...f, petsNote: e.target.value }))
+                                }
+                                placeholder={
+                                  isRent
+                                    ? 'e.g. Dogs under 40 lb, $35/mo'
+                                    : 'e.g. Max 2 pets'
+                                }
+                              />
+                            </Field>
+                          </div>
+                        ) : null}
+                      </div>
+                    </FormSection>
+
+                    {/* Photos */}
+                    <FormSection>
+                      <Field
+                        label="Photos"
+                        hint="Paste image URLs. First photo is the primary image."
+                      >
+                        <div className="flex gap-2">
+                          <TextInput
+                            className="min-w-0 flex-1"
+                            value={imageDraft}
+                            onChange={(e) => setImageDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                addImageUrl()
+                              }
+                            }}
+                            placeholder="https://…/photo.jpg"
+                          />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="h-12 shrink-0 rounded-xl px-4"
+                            onClick={addImageUrl}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                      </Field>
+                      {form.images.length > 0 ? (
+                        <ul className="mt-3 grid grid-cols-2 gap-3">
+                          {form.images.map((url, index) => (
+                            <li
+                              key={`${url}-${index}`}
+                              className="relative overflow-hidden rounded-xl border border-line bg-folio"
+                            >
+                              <OpenableImage
+                                images={form.images}
+                                index={index}
+                                title={form.title || 'Saved place'}
+                                onOpen={openLightbox}
+                                className="h-28 w-full"
+                                imgClassName="h-28"
+                              />
+                              <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+                                <span className="truncate text-xs text-ink-soft">
+                                  {index === 0 ? 'Primary' : `Photo ${index + 1}`}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="shrink-0 rounded-full p-1 text-ink-soft hover:bg-panel hover:text-ink"
+                                  aria-label="Remove photo"
+                                  onClick={() =>
+                                    setForm((f) => ({
+                                      ...f,
+                                      images: f.images.filter((_, i) => i !== index),
+                                    }))
+                                  }
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </FormSection>
+
+                    {/* Tags */}
+                    <FormSection>
+                      <div className="space-y-5">
+                        <ChipPicker
+                          legend="What I like"
+                          suggestions={[
+                            ...PRO_SUGGESTIONS,
+                            'Pet friendly',
+                            'Fenced yard for pets',
+                          ]}
+                          selected={form.proTags}
+                          onChange={(proTags) => setForm((f) => ({ ...f, proTags }))}
+                          tone="pro"
+                          customPlaceholder="Add your own pro…"
+                        />
+                        <ChipPicker
+                          legend="What concerns me"
+                          suggestions={[
+                            ...CONCERN_SUGGESTIONS,
+                            'No pets allowed',
+                            'Pet deposit high',
+                          ]}
+                          selected={form.concernTags}
+                          onChange={(concernTags) =>
+                            setForm((f) => ({ ...f, concernTags }))
+                          }
+                          tone="con"
+                          customPlaceholder="Add your own concern…"
+                        />
+                      </div>
+                    </FormSection>
+
+                    <FormSection>
+                      <Field label="Notes">
+                        <TextTextarea
+                          value={form.notes}
+                          onChange={(e) =>
+                            setForm((f) => ({ ...f, notes: e.target.value }))
+                          }
+                          placeholder="Tour impressions, questions for the agent…"
+                        />
+                      </Field>
+                    </FormSection>
+                  </div>
+                </div>
+
+                <footer className="sticky bottom-0 z-10 flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel/95 px-4 py-3 backdrop-blur md:px-6">
+                  <Button variant="secondary" className="h-12 rounded-xl" onClick={closeForm}>
+                    Cancel
+                  </Button>
+                  <Button
+                    className="h-12 rounded-xl"
+                    onClick={() => {
+                      save()
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {editingId ? 'Save changes' : 'Save place'}
+                  </Button>
+                </footer>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {lightbox ? (
+        <ImageLightbox
+          images={lightbox.images}
+          index={lightbox.index}
+          title={lightbox.title}
+          onClose={() => setLightbox(null)}
+          onIndexChange={(index) =>
+            setLightbox((prev) => (prev ? { ...prev, index } : prev))
+          }
+        />
+      ) : null}
+    </div>
+  )
+}
+
+function FormSection({ children }: { children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-line bg-panel p-4">
+      {children}
+    </section>
+  )
+}
+
+function PetsBadge({
+  pets,
+  note,
+  className,
+}: {
+  pets: PetsPolicy
+  note?: string
+  className?: string
+}) {
+  const tone =
+    pets === 'yes'
+      ? 'bg-move/15 text-move'
+      : pets === 'limited'
+        ? 'bg-honey-soft text-honey'
+        : pets === 'no'
+          ? 'bg-warn/15 text-warn'
+          : 'bg-line/60 text-ink-soft'
+
+  return (
+    <div className={cn('flex flex-wrap items-center gap-2', className)}>
+      <span className={cn('rounded-full px-2.5 py-1 text-xs font-bold', tone)}>
+        {PETS_LABEL[pets] ?? PETS_LABEL.no}
+      </span>
+      {note && (pets === 'yes' || pets === 'limited') ? (
+        <span className="text-xs text-ink-soft">{note}</span>
+      ) : null}
+    </div>
+  )
+}
+
+function primaryCostLabel(place: SavedPlace): string {
+  if (place.listingKind === 'rent') {
+    return place.monthlyEstimate != null
+      ? `${formatMoney(place.monthlyEstimate)}/mo`
+      : 'Rent not set'
+  }
+  if (place.price != null) return formatMoney(place.price)
+  return 'Price not set'
+}
+
+function EmptyPlaces({ onAdd }: { onAdd: () => void }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-line bg-folio/60 px-6 py-10 text-center">
+      <p className="font-display text-2xl font-semibold text-ink">No places saved yet</p>
+      <Button className="mt-4" variant="honey" onClick={onAdd}>
+        <Plus className="h-4 w-4" />
+        Add your first place
+      </Button>
+    </div>
+  )
+}
+
+function TagRow({
+  labels,
+  tone,
+  className,
+}: {
+  labels: string[]
+  tone: 'pro' | 'con'
+  className?: string
+}) {
+  if (!labels?.length) return null
+  return (
+    <ul className={cn('flex flex-wrap gap-1.5', className)}>
+      {labels.map((label) => (
+        <li
+          key={label}
+          className={cn(
+            'rounded-full px-2.5 py-1 text-xs font-bold',
+            tone === 'pro' && 'bg-move/15 text-move',
+            tone === 'con' && 'bg-warn/15 text-warn',
+          )}
+        >
+          {label}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function ChipPicker({
+  legend,
+  suggestions,
+  selected,
+  onChange,
+  tone,
+  customPlaceholder,
+}: {
+  legend: string
+  suggestions: string[]
+  selected: string[]
+  onChange: (next: string[]) => void
+  tone: 'pro' | 'con'
+  customPlaceholder: string
+}) {
+  const [custom, setCustom] = useState('')
+  const pool = useMemo(() => {
+    const extras = selected.filter((s) => !suggestions.includes(s))
+    return [...suggestions, ...extras]
+  }, [suggestions, selected])
+
+  const toggle = (label: string) => {
+    if (selected.includes(label)) {
+      onChange(selected.filter((s) => s !== label))
+    } else {
+      onChange([...selected, label])
+    }
+  }
+
+  const addCustom = (e?: FormEvent) => {
+    e?.preventDefault()
+    const label = custom.trim()
+    if (!label) return
+    if (!selected.includes(label)) onChange([...selected, label])
+    setCustom('')
+  }
+
+  return (
+    <fieldset>
+      <legend className="text-sm font-bold leading-5 text-ink">{legend}</legend>
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        {pool.map((label) => {
+          const on = selected.includes(label)
+          return (
+            <button
+              key={label}
+              type="button"
+              onClick={() => toggle(label)}
+              aria-pressed={on}
+              className={cn(
+                'h-9 rounded-full border px-3 text-sm font-bold transition',
+                on &&
+                  tone === 'pro' &&
+                  'border-move bg-move text-white shadow-[var(--shadow-soft)]',
+                on &&
+                  tone === 'con' &&
+                  'border-warn bg-warn text-white shadow-[var(--shadow-soft)]',
+                !on && 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+      <form onSubmit={addCustom} className="mt-3 flex gap-2">
+        <TextInput
+          className="min-w-0 flex-1"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          placeholder={customPlaceholder}
+        />
+        <Button type="submit" variant="secondary" className="h-12 shrink-0 rounded-xl px-4">
+          Add
+        </Button>
+      </form>
+    </fieldset>
+  )
+}
+
+function PlaceCard({
+  place,
+  moveBudget,
+  selected,
+  onOpenImages,
+  onToggleCompare,
+  onFavorite,
+  onEdit,
+  onDelete,
+}: {
+  place: SavedPlace
+  moveBudget: number | null
+  selected: boolean
+  onOpenImages: (images: string[], index: number, title?: string) => void
+  onToggleCompare: () => void
+  onFavorite: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const images = placeImages(place)
+  const over =
+    place.listingKind === 'rent' &&
+    moveBudget != null &&
+    place.monthlyEstimate != null &&
+    place.monthlyEstimate > moveBudget
+
+  return (
+    <article className="overflow-hidden rounded-[1.5rem] border border-line bg-folio/40 shadow-[var(--shadow-soft)] md:flex">
+      <div className="relative md:w-52 md:shrink-0">
+        {images[0] ? (
+          <OpenableImage
+            images={images}
+            index={0}
+            title={place.title || 'Untitled place'}
+            onOpen={onOpenImages}
+            className="h-44 w-full md:h-full md:min-h-[11rem]"
+            imgClassName="h-44 md:h-full md:min-h-[11rem]"
+          />
+        ) : (
+          <div className="flex h-44 w-full items-center justify-center bg-folio text-sm text-ink-soft md:min-h-[11rem]">
+            No photo
+          </div>
+        )}
+        {images.length > 1 ? (
+          <span className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-ink/70 px-2 py-0.5 text-xs font-bold text-white">
+            {images.length} photos
+          </span>
+        ) : null}
+      </div>
+
+      <div className="flex flex-1 flex-col gap-3 p-4 md:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-bold text-sea-deep">
+              {place.listingKind === 'rent' ? 'Rental' : 'Buy'} · {TIER_LABEL[place.tier]}
+              {place.status !== 'none' ? ` · ${STATUS_LABEL[place.status]}` : ''}
+            </p>
+            <h3 className="mt-1 font-display text-2xl font-semibold text-ink">
+              {place.title || 'Untitled place'}
+            </h3>
+            <p className="mt-1 text-ink-soft">{place.location || 'Location not set'}</p>
+            <PetsBadge pets={place.pets ?? 'no'} note={place.petsNote} className="mt-2" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant={place.favorite ? 'honey' : 'secondary'} onClick={onFavorite}>
+              <Heart className={cn('h-4 w-4', place.favorite && 'fill-current')} />
+            </Button>
+            <Button variant={selected ? 'primary' : 'secondary'} onClick={onToggleCompare}>
+              Compare
+            </Button>
+            <Button variant="secondary" onClick={onEdit}>
+              Edit
+            </Button>
+            <Button variant="ghost" onClick={onDelete}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4 text-sm">
+          <span
+            className={cn(
+              'font-bold',
+              place.listingKind === 'rent'
+                ? over
+                  ? 'text-warn'
+                  : 'text-move'
+                : 'text-ink',
+            )}
+          >
+            {primaryCostLabel(place)}
+          </span>
+          {place.bedrooms != null || place.bathrooms != null ? (
+            <span className="text-ink-soft">
+              {[
+                place.bedrooms != null ? `${place.bedrooms} bed` : null,
+                place.bathrooms != null ? `${place.bathrooms} bath` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          ) : null}
+          {place.url ? (
+            <a
+              href={place.url}
+              target="_blank"
+              rel="noreferrer"
+              className="font-bold text-sea-deep underline-offset-2 hover:underline"
+            >
+              Open listing
+            </a>
+          ) : null}
+        </div>
+
+        <TagRow labels={place.proTags} tone="pro" />
+        <TagRow labels={place.concernTags} tone="con" />
+        {place.notes ? <p className="text-sm text-ink-soft">{place.notes}</p> : null}
+
+        {images.length > 1 ? (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {images.map((url, index) => (
+              <OpenableImage
+                key={`${url}-${index}`}
+                images={images}
+                index={index}
+                title={place.title || 'Untitled place'}
+                onOpen={onOpenImages}
+                className="h-14 w-20 shrink-0 rounded-lg"
+                imgClassName="h-14 w-20"
+              />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </article>
+  )
+}
