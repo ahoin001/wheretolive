@@ -96,9 +96,9 @@ function allowsPets(place: Pick<SavedPlace, 'pets'>): boolean {
   return place.pets === 'yes' || place.pets === 'limited'
 }
 
-/** List filter: friendly default is pet-friendly places. */
+/** List filter: show every place until the user narrows by pets. */
 type PetsFilter = 'allowed' | 'none' | 'all'
-const DEFAULT_PETS_FILTER: PetsFilter = 'allowed'
+const DEFAULT_PETS_FILTER: PetsFilter = 'all'
 
 function matchesPetsFilter(
   place: Pick<SavedPlace, 'pets'>,
@@ -128,7 +128,7 @@ function PetsFilterControl({
       role="radiogroup"
       aria-label="Pets"
       className={cn(
-        'inline-flex rounded-full border border-line bg-panel p-1',
+        'inline-flex rounded-full border border-line bg-panel p-0.5',
         size === 'compact' && 'scale-[0.98]',
       )}
     >
@@ -142,7 +142,10 @@ function PetsFilterControl({
             aria-checked={selected}
             onClick={() => onChange(option.value)}
             className={cn(
-              'min-h-9 rounded-full px-3.5 text-sm font-bold',
+              size === 'compact'
+                ? 'min-h-8 px-2.5 text-xs'
+                : 'min-h-9 px-3.5 text-sm',
+              'rounded-full font-bold',
               motion.chip,
               selected
                 ? 'bg-sea text-white shadow-[var(--shadow-soft)]'
@@ -754,31 +757,12 @@ export function PlacesWorkspace({
             </Button>
           ) : null}
           <Button
-            variant={selectMode ? 'primary' : 'secondary'}
-            onClick={() => {
-              setSelectMode((v) => !v)
-              if (selectMode) clearSelection()
-              setBulkCopyOpen(false)
-            }}
-          >
-            {selectMode ? (
-              <CheckSquare className="h-4 w-4" />
-            ) : (
-              <Square className="h-4 w-4" />
-            )}
-            Select
-          </Button>
-          <Button
             variant="secondary"
             onClick={() => setShareOpen(true)}
-            title="Share list"
+            title="Share this list"
           >
             <Share2 className="h-4 w-4" />
-            Share
-          </Button>
-          <Button variant="honey" onClick={openNewPlace}>
-            <Plus className="h-4 w-4" />
-            Add place
+            Share list
           </Button>
         </div>
       </header>
@@ -906,50 +890,79 @@ export function PlacesWorkspace({
         </div>
       ) : null}
 
-      <section className="rounded-[1.75rem] border border-line bg-panel p-4 shadow-[var(--shadow-soft)] md:p-6">
-        <div className="flex flex-wrap items-center gap-2 border-b border-line pb-4">
+      <section className="rounded-[1.75rem] border border-line bg-panel p-3 shadow-[var(--shadow-soft)] md:p-5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
           {(['list', 'tiers', 'compare'] as const).map((mode) => (
             <Button
               key={mode}
               variant={view === mode ? 'primary' : 'secondary'}
+              className="h-9 min-h-9 rounded-xl px-3 text-sm"
               onClick={() => setView(mode)}
             >
               {mode === 'list' ? 'List' : mode === 'tiers' ? 'Tier board' : 'Compare'}
             </Button>
           ))}
           {view === 'compare' && moveBudget != null ? (
-            <span className="ml-auto text-sm text-ink-soft">
+            <span className="text-sm text-ink-soft">
               Move budget: <strong className="text-ink">{formatMoney(moveBudget)}</strong>/mo
             </span>
           ) : null}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Button
+              variant={selectMode ? 'primary' : 'secondary'}
+              className="h-9 min-h-9 rounded-xl px-3 text-sm"
+              onClick={() => {
+                setSelectMode((v) => !v)
+                if (selectMode) clearSelection()
+                setBulkCopyOpen(false)
+              }}
+            >
+              {selectMode ? (
+                <CheckSquare className="h-3.5 w-3.5" />
+              ) : (
+                <Square className="h-3.5 w-3.5" />
+              )}
+              Select
+            </Button>
+            <Button
+              variant="honey"
+              className="h-9 min-h-9 rounded-xl px-3 text-sm"
+              onClick={openNewPlace}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add place
+            </Button>
+          </div>
         </div>
 
-        <div className="mt-5">
+        <div className="mt-3">
           {view === 'list' ? (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-line bg-folio/50 p-4 md:p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <label className="flex w-full min-w-[14rem] flex-col gap-1.5 lg:max-w-xs">
-                    <span className="text-sm font-bold text-ink">Sort</span>
+            <div className="space-y-3">
+              <div className="rounded-xl border border-line bg-folio/50 px-3 py-2.5 md:px-3.5">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                  <label className="inline-flex items-center gap-2 text-xs font-bold text-ink-soft">
+                    Sort
                     <select
                       value={listSort}
                       onChange={(e) => setListSort(e.target.value as ListSort)}
-                      className="min-h-11 rounded-2xl border border-line bg-panel px-4 text-base text-ink"
+                      className="min-h-8 rounded-lg border border-line bg-panel px-2.5 text-sm font-bold text-ink"
                     >
                       <option value="recent">Recently added</option>
                       <option value="liked">Recently liked</option>
-                      <option value="monthly_asc">Monthly rent · low to high</option>
-                      <option value="monthly_desc">Monthly rent · high to low</option>
+                      <option value="monthly_asc">Rent · low–high</option>
+                      <option value="monthly_desc">Rent · high–low</option>
                     </select>
                   </label>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex flex-col gap-1.5">
-                      <span className="text-sm font-bold text-ink">Pets</span>
-                      <PetsFilterControl
-                        value={petsFilter}
-                        onChange={setPetsFilter}
-                      />
-                    </div>
+
+                  <span className="hidden h-5 w-px bg-line sm:block" aria-hidden />
+
+                  <div className="inline-flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-ink-soft">Pets</span>
+                    <PetsFilterControl
+                      value={petsFilter}
+                      onChange={setPetsFilter}
+                      size="compact"
+                    />
                     {collab.isSharedList ? (
                       <button
                         type="button"
@@ -957,7 +970,7 @@ export function PlacesWorkspace({
                         aria-checked={mutualOnly}
                         onClick={() => setMutualOnly((v) => !v)}
                         className={cn(
-                          'inline-flex min-h-11 items-center gap-2 rounded-full border px-4 text-sm font-bold',
+                          'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
                           motion.chip,
                           mutualOnly
                             ? 'border-honey bg-honey text-white'
@@ -965,76 +978,76 @@ export function PlacesWorkspace({
                         )}
                       >
                         <Heart
-                          className={cn('h-4 w-4', mutualOnly && 'fill-current')}
+                          className={cn('h-3.5 w-3.5', mutualOnly && 'fill-current')}
                         />
-                        Mutual likes
+                        Mutual
                       </button>
                     ) : null}
-                    <p className="text-sm text-ink-soft">
-                      <span className="font-bold text-ink">{listPlaces.length}</span> of{' '}
-                      {allPlaces.length} places
-                      {hasActiveFilters ? ' match filters' : ''}
-                    </p>
                   </div>
+
+                  <p className="ml-auto text-xs text-ink-soft">
+                    <span className="font-bold text-ink">{listPlaces.length}</span>/
+                    {allPlaces.length}
+                    {hasActiveFilters ? ' match' : ''}
+                  </p>
                 </div>
 
                 {availableCities.length > 0 ? (
-                  <div className="mt-4">
-                    <p className="text-sm font-bold text-ink">City</p>
-                    <p className="mt-0.5 text-xs text-ink-soft">
-                      From cities on your saved places. Tap one or more.
-                    </p>
-                    <div className="mt-2.5 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setCityKeys([])}
-                        aria-pressed={!cityFilterActive}
-                        className={cn(
-                          'h-10 rounded-full border px-3.5 text-sm font-bold',
-                          motion.chip,
-                          !cityFilterActive
-                            ? 'border-sea bg-sea text-white shadow-[var(--shadow-soft)]'
-                            : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
-                        )}
-                      >
-                        All cities
-                      </button>
-                      {availableCities.map((city) => {
-                        const on = activeCityKeys.includes(city.key)
-                        return (
-                          <button
-                            key={city.key}
-                            type="button"
-                            onClick={() => toggleCity(city.key)}
-                            aria-pressed={on}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/80 pt-2">
+                    <span className="mr-0.5 text-xs font-bold text-ink-soft">City</span>
+                    <button
+                      type="button"
+                      onClick={() => setCityKeys([])}
+                      aria-pressed={!cityFilterActive}
+                      className={cn(
+                        'h-7 rounded-full border px-2.5 text-xs font-bold',
+                        motion.chip,
+                        !cityFilterActive
+                          ? 'border-sea bg-sea text-white'
+                          : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+                      )}
+                    >
+                      All
+                    </button>
+                    {availableCities.map((city) => {
+                      const on = activeCityKeys.includes(city.key)
+                      return (
+                        <button
+                          key={city.key}
+                          type="button"
+                          onClick={() => toggleCity(city.key)}
+                          aria-pressed={on}
+                          className={cn(
+                            'h-7 rounded-full border px-2.5 text-xs font-bold',
+                            motion.chip,
+                            on
+                              ? 'border-sea bg-sea text-white'
+                              : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+                          )}
+                        >
+                          {city.label}
+                          <span
                             className={cn(
-                              'h-10 rounded-full border px-3.5 text-sm font-bold',
-                              motion.chip,
-                              on
-                                ? 'border-sea bg-sea text-white shadow-[var(--shadow-soft)]'
-                                : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+                              'ml-1 tabular-nums',
+                              on ? 'text-white/80' : 'text-ink-soft',
                             )}
                           >
-                            {city.label}
-                            <span
-                              className={cn(
-                                'ml-1.5 tabular-nums',
-                                on ? 'text-white/80' : 'text-ink-soft',
-                              )}
-                            >
-                              {city.count}
-                            </span>
-                          </button>
-                        )
-                      })}
-                    </div>
+                            {city.count}
+                          </span>
+                        </button>
+                      )
+                    })}
                   </div>
                 ) : null}
 
                 {(hasActiveFilters || listSort !== 'recent') && (
-                  <div className="mt-3 flex justify-end">
-                    <Button variant="ghost" onClick={clearAllFilters}>
-                      Reset sort & filters
+                  <div className="mt-1.5 flex justify-end">
+                    <Button
+                      variant="ghost"
+                      className="h-8 min-h-8 px-2 text-xs"
+                      onClick={clearAllFilters}
+                    >
+                      Reset
                     </Button>
                   </div>
                 )}
@@ -1114,36 +1127,60 @@ export function PlacesWorkspace({
           ) : null}
 
           {view === 'tiers' ? (
-            <div className="space-y-5">
-              <div className="space-y-3 rounded-2xl border border-line bg-folio/50 px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <PetsFilterControl
-                    value={petsFilter}
-                    onChange={setPetsFilter}
-                    size="compact"
-                  />
-                  <p className="text-sm text-ink-soft">
+            <div className="space-y-4">
+              <div className="rounded-xl border border-line bg-folio/50 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-ink-soft">Pets</span>
+                    <PetsFilterControl
+                      value={petsFilter}
+                      onChange={setPetsFilter}
+                      size="compact"
+                    />
+                    {collab.isSharedList ? (
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={mutualOnly}
+                        onClick={() => setMutualOnly((v) => !v)}
+                        className={cn(
+                          'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
+                          motion.chip,
+                          mutualOnly
+                            ? 'border-honey bg-honey text-white'
+                            : 'border-line bg-panel text-ink hover:border-sea',
+                        )}
+                      >
+                        <Heart
+                          className={cn('h-3.5 w-3.5', mutualOnly && 'fill-current')}
+                        />
+                        Mutual
+                      </button>
+                    ) : null}
+                  </div>
+                  <p className="ml-auto text-xs text-ink-soft">
                     {hasActiveFilters
-                      ? `Showing ${boardPlaces.length} place${boardPlaces.length === 1 ? '' : 's'}`
+                      ? `${boardPlaces.length} match`
                       : `${boardPlaces.length} places`}
                   </p>
                 </div>
 
                 {availableCities.length > 0 ? (
-                  <div className="flex flex-wrap gap-2 border-t border-line pt-3">
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/80 pt-2">
+                    <span className="mr-0.5 text-xs font-bold text-ink-soft">City</span>
                     <button
                       type="button"
                       onClick={() => setCityKeys([])}
                       aria-pressed={!cityFilterActive}
                       className={cn(
-                        'h-9 rounded-full border px-3 text-sm font-bold',
+                        'h-7 rounded-full border px-2.5 text-xs font-bold',
                         motion.chip,
                         !cityFilterActive
                           ? 'border-sea bg-sea text-white'
                           : 'border-line bg-panel text-ink hover:border-sea',
                       )}
                     >
-                      All cities
+                      All
                     </button>
                     {availableCities.map((city) => {
                       const on = activeCityKeys.includes(city.key)
@@ -1154,7 +1191,7 @@ export function PlacesWorkspace({
                           onClick={() => toggleCity(city.key)}
                           aria-pressed={on}
                           className={cn(
-                            'h-9 rounded-full border px-3 text-sm font-bold',
+                            'h-7 rounded-full border px-2.5 text-xs font-bold',
                             motion.chip,
                             on
                               ? 'border-sea bg-sea text-white'
@@ -1164,7 +1201,7 @@ export function PlacesWorkspace({
                           {city.label}
                           <span
                             className={cn(
-                              'ml-1.5 tabular-nums',
+                              'ml-1 tabular-nums',
                               on ? 'text-white/80' : 'text-ink-soft',
                             )}
                           >
