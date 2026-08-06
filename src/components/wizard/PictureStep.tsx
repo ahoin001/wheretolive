@@ -84,21 +84,6 @@ export function PictureStep({ app }: { app: AppController }) {
         </p>
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Stay / mo" value={formatMoney(finance.stayMonthly)} tone="keep" />
-        <StatCard label="Rent / mo" value={formatMoney(finance.moveMonthly)} tone="move" />
-        <StatCard
-          label="Difference"
-          value={`${finance.monthlyDelta >= 0 ? '+' : ''}${formatMoney(finance.monthlyDelta)}`}
-          tone="honey"
-        />
-        <StatCard
-          label="Cash after sale"
-          value={formatMoney(finance.cashAfterMoveMid)}
-          tone="sea"
-        />
-      </div>
-
       <MoneyPicture finance={finance} home={scenario.home} move={scenario.move} />
 
       <section className="rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)] md:p-7">
@@ -209,33 +194,6 @@ export function PictureStep({ app }: { app: AppController }) {
           </Field>
         </div>
       </section>
-    </div>
-  )
-}
-
-function StatCard({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: string
-  tone: 'keep' | 'move' | 'honey' | 'sea'
-}) {
-  const color =
-    tone === 'keep'
-      ? 'text-keep'
-      : tone === 'move'
-        ? 'text-move'
-        : tone === 'honey'
-          ? 'text-honey'
-          : 'text-sea-deep'
-  return (
-    <div className="rounded-2xl border border-line bg-panel px-4 py-3 shadow-[var(--shadow-soft)]">
-      <p className="text-sm text-ink-soft">{label}</p>
-      <p className={`font-display text-2xl font-semibold tabular-nums ${color}`}>
-        {value}
-      </p>
     </div>
   )
 }

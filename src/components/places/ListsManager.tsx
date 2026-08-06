@@ -6,7 +6,6 @@ import {
   Users,
   Lock,
   Check,
-  X,
 } from 'lucide-react'
 import type { CollaborationController } from '../../hooks/useCollaboration'
 import { listIsShared } from '../../data/collaboration/types'
@@ -19,10 +18,13 @@ export function ListsManager({
   collab,
   open,
   onClose,
+  /** `embedded` = content only (parent sheet owns title + Done). `panel` = card with Done. */
+  variant = 'panel',
 }: {
   collab: CollaborationController
   open: boolean
   onClose: () => void
+  variant?: 'panel' | 'embedded'
 }) {
   const [newName, setNewName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
@@ -31,6 +33,8 @@ export function ListsManager({
   const [error, setError] = useState<string | null>(null)
 
   if (!open || !collab.cloudActive) return null
+
+  const embedded = variant === 'embedded'
 
   const create = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -80,21 +84,37 @@ export function ListsManager({
   }
 
   return (
-    <div className="rounded-[1.5rem] border border-line bg-panel p-4 shadow-[var(--shadow-soft)] md:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <h2 className="font-display text-xl font-semibold text-ink">Your lists</h2>
-          <p className="mt-1 text-sm text-ink-soft">
-            Private boards for yourself, shared boards with partners or clients. Each
-            list has its own places and people.
-          </p>
+    <div
+      className={cn(
+        !embedded &&
+          'rounded-[1.5rem] border border-line bg-panel p-4 shadow-[var(--shadow-soft)] md:p-5',
+      )}
+    >
+      {!embedded ? (
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-display text-xl font-semibold text-ink">Your lists</h2>
+            <p className="mt-1 text-sm text-ink-soft">
+              Private boards for yourself, shared boards with partners or clients. Each
+              list has its own places and people.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-11 shrink-0 rounded-xl px-4"
+            onClick={onClose}
+          >
+            Done
+          </Button>
         </div>
-        <Button type="button" variant="ghost" onClick={onClose} aria-label="Close lists">
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
+      ) : (
+        <p className="text-sm text-ink-soft">
+          Create, rename, or delete boards. Tap a list to open it.
+        </p>
+      )}
 
-      <ul className="mt-4 space-y-2">
+      <ul className={cn('space-y-2', embedded ? 'mt-3' : 'mt-4')}>
         {collab.lists.map((list) => {
           const shared = listIsShared(list)
           const active = list.id === collab.activeListId

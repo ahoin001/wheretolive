@@ -59,32 +59,46 @@ export function AuthPage({
         </div>
       ) : (
         <div className="mt-8 rounded-[1.75rem] border border-line bg-panel p-6 shadow-[var(--shadow-lift)] md:p-8">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="font-display text-2xl font-semibold text-ink md:text-3xl">
-              {mode === 'signin' ? 'Sign in' : 'Create account'}
-            </h1>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={mode === 'signin' ? 'primary' : 'secondary'}
-                onClick={() => {
-                  setMode('signin')
-                  setMessage(null)
-                }}
-              >
-                Sign in
-              </Button>
-              <Button
-                type="button"
-                variant={mode === 'signup' ? 'primary' : 'secondary'}
-                onClick={() => {
-                  setMode('signup')
-                  setMessage(null)
-                }}
-              >
-                Sign up
-              </Button>
-            </div>
+          <h1 className="font-display text-2xl font-semibold text-ink md:text-3xl">
+            {mode === 'signin' ? 'Sign in' : 'Create account'}
+          </h1>
+          <div
+            className="mt-4 grid grid-cols-2 gap-1 rounded-2xl bg-folio p-1"
+            role="tablist"
+            aria-label="Sign in or create account"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'signin'}
+              className={
+                mode === 'signin'
+                  ? 'min-h-11 rounded-xl bg-panel text-sm font-bold text-ink shadow-[var(--shadow-soft)]'
+                  : 'min-h-11 rounded-xl text-sm font-bold text-ink-soft'
+              }
+              onClick={() => {
+                setMode('signin')
+                setMessage(null)
+              }}
+            >
+              Sign in
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'signup'}
+              className={
+                mode === 'signup'
+                  ? 'min-h-11 rounded-xl bg-panel text-sm font-bold text-ink shadow-[var(--shadow-soft)]'
+                  : 'min-h-11 rounded-xl text-sm font-bold text-ink-soft'
+              }
+              onClick={() => {
+                setMode('signup')
+                setMessage(null)
+              }}
+            >
+              Sign up
+            </button>
           </div>
 
           <form className="mt-6 space-y-4" onSubmit={(e) => void onSubmit(e)}>

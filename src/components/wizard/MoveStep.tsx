@@ -141,12 +141,14 @@ export function MoveStep({ app }: { app: AppController }) {
       </section>
 
       {moveTotal >= 100 || finance.stayMonthly >= 100 ? (
-        <MoneyPicture
-          finance={finance}
-          home={scenario.home}
-          move={move}
-          compact
-        />
+        <div className="hidden md:block">
+          <MoneyPicture
+            finance={finance}
+            home={scenario.home}
+            move={move}
+            compact
+          />
+        </div>
       ) : null}
     </div>
   )

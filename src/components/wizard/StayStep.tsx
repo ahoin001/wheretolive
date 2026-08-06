@@ -135,7 +135,9 @@ export function StayStep({ app }: { app: AppController }) {
       </section>
 
       {stayTotal >= 100 ? (
-        <MoneyPicture finance={finance} home={home} move={scenario.move} compact />
+        <div className="hidden md:block">
+          <MoneyPicture finance={finance} home={home} move={scenario.move} compact />
+        </div>
       ) : null}
 
       <p className="text-center text-sm text-ink-soft">

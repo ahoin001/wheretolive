@@ -3,6 +3,7 @@ import {
   Check,
   CheckSquare,
   ChevronDown,
+  ChevronUp,
   Copy,
   ExternalLink,
   FolderOpen,
@@ -44,6 +45,7 @@ import { Button, ButtonLink } from '../ui/Button'
 import { ChoiceGroup } from '../ui/ChoiceGroup'
 import { CityCombobox } from '../ui/CityCombobox'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { BottomSheet } from '../ui/BottomSheet'
 import { SideDrawer } from '../ui/SideDrawer'
 import { CurrencyInput, Field, NumberInput, TextInput, TextTextarea } from '../ui/Field'
 import { ImageLightbox, OpenableImage } from './ImageLightbox'
@@ -159,8 +161,8 @@ function PetsFilterControl({
             onClick={() => onChange(option.value)}
             className={cn(
               size === 'compact'
-                ? 'min-h-8 px-2.5 text-xs'
-                : 'min-h-9 px-3.5 text-sm',
+                ? 'min-h-9 px-2.5 text-xs'
+                : 'min-h-11 px-3.5 text-sm',
               'rounded-full font-bold',
               motion.chip,
               selected
@@ -680,6 +682,8 @@ export function PlacesWorkspace({
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [shareOpen, setShareOpen] = useState(false)
   const [listsOpen, setListsOpen] = useState(false)
+  const [listPickerOpen, setListPickerOpen] = useState(false)
+  const [selectMoreOpen, setSelectMoreOpen] = useState(false)
   const [headerRenameOpen, setHeaderRenameOpen] = useState(false)
   const [headerRenameValue, setHeaderRenameValue] = useState('')
   const [headerRenameBusy, setHeaderRenameBusy] = useState(false)
@@ -698,6 +702,19 @@ export function PlacesWorkspace({
     index: number
     title?: string
   } | null>(null)
+  const [isMdUp, setIsMdUp] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(min-width: 768px)').matches
+      : true,
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => setIsMdUp(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   const allPlaces = collab.cloudActive ? collab.places : app.places
 
@@ -1001,16 +1018,34 @@ export function PlacesWorkspace({
             {collab.cloudActive && collab.activeList ? (
               <button
                 type="button"
-                onClick={() => setListsOpen(true)}
+                aria-expanded={listPickerOpen || listsOpen}
+                aria-controls="lists-sheet"
+                onClick={() => {
+                  // Same control opens and closes: manage sheet first, else picker
+                  if (listsOpen) {
+                    setListsOpen(false)
+                    return
+                  }
+                  if (listPickerOpen) {
+                    setListPickerOpen(false)
+                    return
+                  }
+                  setListPickerOpen(true)
+                }}
                 className={cn(
                   'flex w-full min-w-0 items-center gap-1 text-left',
                   motion.chip,
+                  (listPickerOpen || listsOpen) && 'text-sea-deep',
                 )}
               >
                 <span className="truncate font-display text-[1.65rem] font-semibold leading-tight tracking-[-0.02em] text-ink">
                   {collab.activeList.name}
                 </span>
-                <ChevronDown className="h-5 w-5 shrink-0 text-ink-soft" />
+                {listPickerOpen || listsOpen ? (
+                  <ChevronUp className="h-5 w-5 shrink-0 text-sea-deep" />
+                ) : (
+                  <ChevronDown className="h-5 w-5 shrink-0 text-ink-soft" />
+                )}
               </button>
             ) : (
               <h1 className="font-display text-[1.65rem] font-semibold tracking-[-0.02em] text-ink">
@@ -1175,12 +1210,16 @@ export function PlacesWorkspace({
         </div>
       ) : null}
 
+      {/* Desktop: inline expand; mobile uses BottomSheet below */}
       {listsOpen && collab.cloudActive ? (
-        <ListsManager
-          collab={collab}
-          open={listsOpen}
-          onClose={() => setListsOpen(false)}
-        />
+        <div className="hidden md:block">
+          <ListsManager
+            collab={collab}
+            open={listsOpen}
+            onClose={() => setListsOpen(false)}
+            variant="panel"
+          />
+        </div>
       ) : null}
 
       <PendingInvitesBanner collab={collab} />
@@ -1221,18 +1260,19 @@ export function PlacesWorkspace({
       {selectMode ? (
         <div
           className={cn(
-            'z-40 flex flex-wrap items-center gap-2 border border-line bg-panel/95 px-3 py-2.5 shadow-[var(--shadow-lift)] backdrop-blur-md',
+            'z-40 flex items-center gap-1.5 border border-line bg-panel/95 px-2.5 py-2 shadow-[var(--shadow-lift)] backdrop-blur-md sm:flex-wrap sm:gap-2 sm:px-3 sm:py-2.5',
             'fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] rounded-2xl',
             'md:static md:inset-auto md:rounded-[1.5rem] md:bg-folio/90 md:px-4 md:py-3 md:shadow-[var(--shadow-soft)] md:backdrop-blur-none',
           )}
         >
-          <p className="text-sm font-bold text-ink">
-            {selectedIds.length} selected
+          <p className="min-w-0 shrink-0 text-sm font-bold tabular-nums text-ink">
+            {selectedIds.length}
+            <span className="hidden sm:inline"> selected</span>
           </p>
           <Button
             type="button"
             variant="ghost"
-            className="h-9 min-h-9 px-2.5 text-sm"
+            className="hidden min-h-11 px-2.5 text-sm sm:inline-flex md:min-h-9 md:h-9"
             onClick={selectAllVisible}
           >
             All shown
@@ -1240,7 +1280,7 @@ export function PlacesWorkspace({
           <Button
             type="button"
             variant="ghost"
-            className="hidden h-9 min-h-9 px-2.5 text-sm sm:inline-flex"
+            className="hidden min-h-11 px-2.5 text-sm md:inline-flex md:h-9 md:min-h-9"
             onClick={() => setSelectedIds(allPlaces.map((p) => p.id))}
           >
             Full list
@@ -1248,17 +1288,17 @@ export function PlacesWorkspace({
           <Button
             type="button"
             variant="ghost"
-            className="h-9 min-h-9 px-2.5 text-sm"
+            className="hidden min-h-11 px-2.5 text-sm sm:inline-flex md:h-9 md:min-h-9"
             onClick={clearSelection}
           >
             Clear
           </Button>
           {selectedIds.length > 0 && collab.cloudActive ? (
-            <div className="relative">
+            <div className="relative hidden sm:block">
               <Button
                 type="button"
                 variant="secondary"
-                className="h-9 min-h-9 px-2.5 text-sm"
+                className="min-h-11 px-2.5 text-sm md:h-9 md:min-h-9"
                 onClick={() => setBulkCopyOpen((v) => !v)}
               >
                 <Copy className="h-4 w-4" />
@@ -1283,10 +1323,11 @@ export function PlacesWorkspace({
             <Button
               type="button"
               variant="danger"
-              className="h-9 min-h-9 px-2.5 text-sm"
+              className="min-h-11 min-w-11 px-2.5 md:h-9 md:min-h-9"
               onClick={() =>
                 setDeleteTarget({ kind: 'bulk', ids: [...selectedIds] })
               }
+              aria-label="Delete selected"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -1294,21 +1335,85 @@ export function PlacesWorkspace({
           <Button
             type="button"
             variant="honey"
-            className="ml-auto h-9 min-h-9 px-3 text-sm"
+            className="ml-auto min-h-11 min-w-11 px-3 md:h-9 md:min-h-9"
             onClick={() => setShareOpen(true)}
             disabled={selectedIds.length === 0 && allPlaces.length === 0}
+            aria-label="Share"
           >
             <Share2 className="h-4 w-4" />
             <span className="hidden sm:inline">Share</span>
           </Button>
+          <div className="relative sm:hidden">
+            <Button
+              type="button"
+              variant="ghost"
+              className="min-h-11 min-w-11 px-2"
+              aria-label="More select actions"
+              aria-expanded={selectMoreOpen}
+              onClick={() => setSelectMoreOpen((v) => !v)}
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </Button>
+            {selectMoreOpen ? (
+              <div className="absolute bottom-full right-0 z-30 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[var(--shadow-lift)]">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
+                  onClick={() => {
+                    selectAllVisible()
+                    setSelectMoreOpen(false)
+                  }}
+                >
+                  All shown
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
+                  onClick={() => {
+                    clearSelection()
+                    setSelectMoreOpen(false)
+                  }}
+                >
+                  Clear
+                </button>
+                {selectedIds.length > 0 && collab.cloudActive ? (
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
+                    onClick={() => {
+                      setBulkCopyOpen(true)
+                      setSelectMoreOpen(false)
+                    }}
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy to list
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {bulkCopyOpen && selectedIds.length > 0 && collab.cloudActive ? (
+              <div className="absolute bottom-full right-0 z-30 mb-2 w-72 sm:hidden">
+                <CopyToListMenu
+                  collab={collab}
+                  placeIds={selectedIds}
+                  onDone={(msg) => {
+                    setListToast(msg)
+                    setBulkCopyOpen(false)
+                  }}
+                  onCancel={() => setBulkCopyOpen(false)}
+                />
+              </div>
+            ) : null}
+          </div>
           <Button
             type="button"
             variant="ghost"
-            className="h-9 min-h-9 px-2 md:hidden"
+            className="min-h-11 min-w-11 px-2 md:hidden"
             onClick={() => {
               setSelectMode(false)
               clearSelection()
               setBulkCopyOpen(false)
+              setSelectMoreOpen(false)
             }}
             aria-label="Done selecting"
           >
@@ -1553,117 +1658,217 @@ export function PlacesWorkspace({
               ) : null}
               {TIERS.map((tier) => {
                 const placesInTier = boardPlaces.filter((p) => p.tier === tier)
+                const empty = placesInTier.length === 0
                 return (
                   <div
                     key={tier}
-                    className="rounded-2xl border border-line bg-folio/70 p-4 md:p-5"
+                    className={cn(
+                      'rounded-2xl border border-line bg-folio/70',
+                      empty ? 'px-3 py-2.5 md:p-5' : 'p-3 md:p-5',
+                    )}
                   >
                     <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <h3 className="font-display text-xl font-semibold text-ink">
+                      <h3
+                        className={cn(
+                          'font-display font-semibold text-ink',
+                          empty
+                            ? 'text-base md:text-xl'
+                            : 'text-lg md:text-xl',
+                        )}
+                      >
                         {TIER_LABEL[tier]}
                       </h3>
-                      <span className="text-sm font-bold text-ink-soft">
-                        {placesInTier.length}{' '}
-                        {placesInTier.length === 1 ? 'place' : 'places'}
+                      <span className="text-xs font-bold text-ink-soft md:text-sm">
+                        {empty
+                          ? 'Empty'
+                          : `${placesInTier.length} ${
+                              placesInTier.length === 1 ? 'place' : 'places'
+                            }`}
                       </span>
                     </div>
 
-                    {placesInTier.length === 0 ? (
-                      <p className="mt-3 text-sm text-ink-soft">Nothing here yet.</p>
-                    ) : (
-                      <div className="mt-4 flex gap-3 overflow-x-auto pb-1">
-                        {placesInTier.map((place) => {
-                          const images = placeImages(place)
-                          const inCompare = compareIds.includes(place.id)
-                          const selected = selectedIds.includes(place.id)
-                          return (
-                            <div
-                              key={place.id}
-                              className={cn(
-                                'w-52 shrink-0 overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
-                                motion.color,
-                                selectMode && selected
-                                  ? 'border-sea ring-2 ring-sea/25'
-                                  : inCompare
-                                    ? 'border-sea'
-                                    : 'border-line hover:border-sea',
-                              )}
-                            >
-                              {images[0] ? (
-                                <OpenableImage
-                                  images={images}
-                                  index={0}
-                                  title={place.title || 'Untitled'}
-                                  onOpen={openLightbox}
-                                  className="h-28 w-full"
-                                  imgClassName="h-28"
-                                />
-                              ) : (
-                                <div className="flex h-28 items-center justify-center bg-folio text-sm text-ink-soft">
-                                  No photo
-                                </div>
-                              )}
-                              <div className="p-3">
-                                {selectMode ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleSelect(place.id)}
-                                    className="w-full text-left"
-                                  >
-                                    <p className="line-clamp-2 font-bold text-ink">
-                                      {place.title || 'Untitled'}
-                                    </p>
-                                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
-                                      <span>{primaryCostLabel(place)}</span>
-                                      <PetsBadge pets={place.pets ?? 'no'} compact />
-                                    </p>
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => startEdit(place)}
-                                    className="w-full text-left"
-                                  >
-                                    <p className="line-clamp-2 font-bold text-ink">
-                                      {place.title || 'Untitled'}
-                                    </p>
-                                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
-                                      <span>{primaryCostLabel(place)}</span>
-                                      <PetsBadge pets={place.pets ?? 'no'} compact />
-                                    </p>
-                                  </button>
+                    {empty ? null : (
+                      <>
+                        {/* Mobile: full-width stacked rows */}
+                        <ul className="mt-3 space-y-2 md:hidden">
+                          {placesInTier.map((place) => {
+                            const images = placeImages(place)
+                            const inCompare = compareIds.includes(place.id)
+                            const selected = selectedIds.includes(place.id)
+                            return (
+                              <li
+                                key={place.id}
+                                className={cn(
+                                  'flex gap-3 overflow-hidden rounded-xl border bg-panel p-2 shadow-[var(--shadow-soft)]',
+                                  motion.color,
+                                  selectMode && selected
+                                    ? 'border-sea ring-2 ring-sea/25'
+                                    : inCompare
+                                      ? 'border-sea'
+                                      : 'border-line',
                                 )}
-                                {selectMode ? (
-                                  <Button
-                                    type="button"
-                                    variant={selected ? 'primary' : 'secondary'}
-                                    className="mt-2 h-9 min-h-9 w-full rounded-xl px-3 text-sm"
-                                    onClick={() => toggleSelect(place.id)}
-                                  >
-                                    {selected ? 'Selected' : 'Select'}
-                                  </Button>
+                              >
+                                {images[0] ? (
+                                  <OpenableImage
+                                    images={images}
+                                    index={0}
+                                    title={place.title || 'Untitled'}
+                                    onOpen={openLightbox}
+                                    className="h-20 w-20 shrink-0 rounded-lg"
+                                    imgClassName="h-20 w-20"
+                                  />
                                 ) : (
-                                  <Button
+                                  <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-lg bg-folio text-xs text-ink-soft">
+                                    No photo
+                                  </div>
+                                )}
+                                <div className="flex min-w-0 flex-1 flex-col justify-between gap-2 py-0.5">
+                                  <button
                                     type="button"
-                                    variant={inCompare ? 'primary' : 'secondary'}
-                                    className="mt-2 h-9 min-h-9 w-full rounded-xl px-3 text-sm"
                                     onClick={() =>
-                                      setCompareIds((ids) =>
-                                        ids.includes(place.id)
-                                          ? ids.filter((id) => id !== place.id)
-                                          : [...ids, place.id].slice(0, 3),
-                                      )
+                                      selectMode
+                                        ? toggleSelect(place.id)
+                                        : startEdit(place)
                                     }
-                                    disabled={!inCompare && compareIds.length >= 3}
+                                    className="w-full text-left"
                                   >
-                                    {inCompare ? 'In compare' : 'Compare'}
-                                  </Button>
+                                    <p className="line-clamp-2 text-sm font-bold leading-snug text-ink">
+                                      {place.title || 'Untitled'}
+                                    </p>
+                                    <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-soft">
+                                      <span>{primaryCostLabel(place)}</span>
+                                      <PetsBadge
+                                        pets={place.pets ?? 'no'}
+                                        compact
+                                      />
+                                    </p>
+                                  </button>
+                                  {selectMode ? (
+                                    <Button
+                                      type="button"
+                                      variant={selected ? 'primary' : 'secondary'}
+                                      className="min-h-11 w-full rounded-xl px-3 text-sm"
+                                      onClick={() => toggleSelect(place.id)}
+                                    >
+                                      {selected ? 'Selected' : 'Select'}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant={
+                                        inCompare ? 'primary' : 'secondary'
+                                      }
+                                      className="min-h-11 w-full rounded-xl px-3 text-sm"
+                                      onClick={() =>
+                                        setCompareIds((ids) =>
+                                          ids.includes(place.id)
+                                            ? ids.filter((id) => id !== place.id)
+                                            : [...ids, place.id].slice(0, 3),
+                                        )
+                                      }
+                                      disabled={
+                                        !inCompare && compareIds.length >= 3
+                                      }
+                                    >
+                                      {inCompare ? 'In compare' : 'Compare'}
+                                    </Button>
+                                  )}
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ul>
+
+                        {/* Desktop: horizontal snap rails */}
+                        <div className="mt-4 hidden gap-3 overflow-x-auto scroll-smooth pb-1 md:flex md:snap-x md:snap-mandatory">
+                          {placesInTier.map((place) => {
+                            const images = placeImages(place)
+                            const inCompare = compareIds.includes(place.id)
+                            const selected = selectedIds.includes(place.id)
+                            return (
+                              <div
+                                key={place.id}
+                                className={cn(
+                                  'w-[min(16rem,70vw)] shrink-0 snap-start overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
+                                  motion.color,
+                                  selectMode && selected
+                                    ? 'border-sea ring-2 ring-sea/25'
+                                    : inCompare
+                                      ? 'border-sea'
+                                      : 'border-line hover:border-sea',
                                 )}
+                              >
+                                {images[0] ? (
+                                  <OpenableImage
+                                    images={images}
+                                    index={0}
+                                    title={place.title || 'Untitled'}
+                                    onOpen={openLightbox}
+                                    className="h-28 w-full"
+                                    imgClassName="h-28"
+                                  />
+                                ) : (
+                                  <div className="flex h-28 items-center justify-center bg-folio text-sm text-ink-soft">
+                                    No photo
+                                  </div>
+                                )}
+                                <div className="p-3">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      selectMode
+                                        ? toggleSelect(place.id)
+                                        : startEdit(place)
+                                    }
+                                    className="w-full text-left"
+                                  >
+                                    <p className="line-clamp-2 font-bold text-ink">
+                                      {place.title || 'Untitled'}
+                                    </p>
+                                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
+                                      <span>{primaryCostLabel(place)}</span>
+                                      <PetsBadge
+                                        pets={place.pets ?? 'no'}
+                                        compact
+                                      />
+                                    </p>
+                                  </button>
+                                  {selectMode ? (
+                                    <Button
+                                      type="button"
+                                      variant={selected ? 'primary' : 'secondary'}
+                                      className="mt-2 h-9 min-h-9 w-full rounded-xl px-3 text-sm"
+                                      onClick={() => toggleSelect(place.id)}
+                                    >
+                                      {selected ? 'Selected' : 'Select'}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      type="button"
+                                      variant={
+                                        inCompare ? 'primary' : 'secondary'
+                                      }
+                                      className="mt-2 h-9 min-h-9 w-full rounded-xl px-3 text-sm"
+                                      onClick={() =>
+                                        setCompareIds((ids) =>
+                                          ids.includes(place.id)
+                                            ? ids.filter((id) => id !== place.id)
+                                            : [...ids, place.id].slice(0, 3),
+                                        )
+                                      }
+                                      disabled={
+                                        !inCompare && compareIds.length >= 3
+                                      }
+                                    >
+                                      {inCompare ? 'In compare' : 'Compare'}
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          )
-                        })}
-                      </div>
+                            )
+                          })}
+                        </div>
+                      </>
                     )}
                   </div>
                 )
@@ -1846,7 +2051,7 @@ export function PlacesWorkspace({
         panelClassName="max-w-3xl sm:max-w-2xl lg:max-w-3xl"
         closeOnEscape={!lightbox}
       >
-                <header className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b border-line bg-panel/95 px-4 py-4 backdrop-blur md:px-6">
+                <header className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-3 border-b border-line bg-panel/95 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] backdrop-blur md:px-6 md:pt-4">
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-sea-deep">
                       {editingId ? 'Editing' : 'New place'}
@@ -1864,7 +2069,12 @@ export function PlacesWorkspace({
                       Fill in what you know — you can come back and update anytime.
                     </p>
                   </div>
-                  <Button variant="ghost" onClick={closeForm} aria-label="Close form">
+                  <Button
+                    variant="ghost"
+                    onClick={closeForm}
+                    aria-label="Close form"
+                    className="min-h-11 min-w-11"
+                  >
                     <X className="h-5 w-5" />
                     <span className="hidden sm:inline">Close</span>
                   </Button>
@@ -2246,12 +2456,12 @@ export function PlacesWorkspace({
                   </div>
                 </div>
 
-                <footer className="sticky bottom-0 z-10 flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel/95 px-4 py-3 backdrop-blur md:px-6">
-                  <Button variant="secondary" className="h-12 rounded-xl" onClick={closeForm}>
+                <footer className="sticky bottom-0 z-10 flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel/95 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur md:px-6 md:pb-3">
+                  <Button variant="secondary" className="h-12 min-h-12 rounded-xl" onClick={closeForm}>
                     Cancel
                   </Button>
                   <Button
-                    className="h-12 rounded-xl"
+                    className="h-12 min-h-12 rounded-xl"
                     onClick={() => {
                       save()
                     }}
@@ -2286,31 +2496,13 @@ export function PlacesWorkspace({
         onClose={() => setShareOpen(false)}
       />
 
-      <SideDrawer
+      <BottomSheet
         open={filtersOpen}
         onClose={() => setFiltersOpen(false)}
-        aria-label="Sort and filters"
-        panelClassName="max-w-full sm:max-w-md"
-      >
-        <div className="flex h-full flex-col">
-          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-            <h2 className="font-display text-xl font-semibold text-ink">
-              Sort & filters
-            </h2>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-9 min-h-9 rounded-full px-2"
-              onClick={() => setFiltersOpen(false)}
-              aria-label="Close filters"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-          <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-4">
-            {filtersBody}
-          </div>
-          <div className="flex gap-2 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        title="Sort & filters"
+        titleId="filters-sheet-title"
+        footer={
+          <div className="flex gap-2">
             <Button
               type="button"
               variant="ghost"
@@ -2332,8 +2524,103 @@ export function PlacesWorkspace({
                 : 's'}
             </Button>
           </div>
-        </div>
-      </SideDrawer>
+        }
+      >
+        <div className="flex flex-col gap-4">{filtersBody}</div>
+      </BottomSheet>
+
+      <BottomSheet
+        open={listPickerOpen && collab.cloudActive && !listsOpen}
+        onClose={() => setListPickerOpen(false)}
+        title="Switch list"
+        titleId="list-picker-title"
+        footer={
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-11 min-h-11 w-full rounded-xl"
+            onClick={() => {
+              setListPickerOpen(false)
+              setListsOpen(true)
+            }}
+          >
+            <FolderOpen className="h-4 w-4" />
+            Manage lists
+          </Button>
+        }
+      >
+        <ul className="space-y-1" role="listbox" aria-label="Place lists">
+          {collab.lists.map((list) => {
+            const active = list.id === collab.activeListId
+            return (
+              <li key={list.id}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left',
+                    motion.chip,
+                    active
+                      ? 'bg-sea text-white'
+                      : 'text-ink hover:bg-folio',
+                  )}
+                  onClick={() => {
+                    void collab.selectList(list.id)
+                    setListPickerOpen(false)
+                  }}
+                >
+                  <span
+                    className={cn(
+                      'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border',
+                      active
+                        ? 'border-white bg-white text-sea'
+                        : 'border-line',
+                    )}
+                  >
+                    {active ? <Check className="h-3.5 w-3.5" /> : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-bold">{list.name}</span>
+                    <span
+                      className={cn(
+                        'block text-xs',
+                        active ? 'text-white/80' : 'text-ink-soft',
+                      )}
+                    >
+                      {listIsShared(list) ? 'Shared' : 'Private'}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </BottomSheet>
+
+      <BottomSheet
+        open={listsOpen && collab.cloudActive && !isMdUp}
+        onClose={() => setListsOpen(false)}
+        title="Manage lists"
+        titleId="lists-sheet"
+        footer={
+          <Button
+            type="button"
+            variant="primary"
+            className="h-11 min-h-11 w-full rounded-xl"
+            onClick={() => setListsOpen(false)}
+          >
+            Done
+          </Button>
+        }
+      >
+        <ListsManager
+          collab={collab}
+          open={listsOpen}
+          onClose={() => setListsOpen(false)}
+          variant="embedded"
+        />
+      </BottomSheet>
 
       <ConfirmDialog
         open={deleteTarget != null}
@@ -2894,7 +3181,7 @@ function PlaceCard({
                   target="_blank"
                   rel="noreferrer"
                   variant="secondary"
-                  className="h-9 min-h-9 flex-1 rounded-full px-3 text-sm"
+                  className="min-h-11 flex-1 rounded-full px-3 text-sm"
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                   Listing
@@ -2903,7 +3190,7 @@ function PlaceCard({
               <Button
                 type="button"
                 variant="secondary"
-                className="h-9 min-h-9 flex-1 rounded-full px-3 text-sm"
+                className="min-h-11 flex-1 rounded-full px-3 text-sm"
                 onClick={onEdit}
               >
                 Edit
@@ -2912,7 +3199,7 @@ function PlaceCard({
                 <Button
                   type="button"
                   variant="ghost"
-                  className="h-9 min-h-9 rounded-full px-2.5"
+                  className="min-h-11 min-w-11 rounded-full px-2.5"
                   onClick={() => setMenuOpen((v) => !v)}
                   aria-expanded={menuOpen}
                   aria-label="More actions"

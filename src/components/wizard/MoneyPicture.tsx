@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -59,6 +59,22 @@ export function MoneyPicture({
   compact?: boolean
 }) {
   const [horizon, setHorizon] = useState<CumulativeHorizon>(5)
+  const [narrow, setNarrow] = useState(() =>
+    typeof window !== 'undefined'
+      ? !window.matchMedia('(min-width: 768px)').matches
+      : false,
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => setNarrow(!mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  const yAxisWidth = narrow ? 56 : 72
+  const waterfallYWidth = narrow ? 72 : 118
 
   const monthly = [
     { name: 'Stay', total: Math.round(finance.stayMonthly), fill: KEEP },
@@ -134,8 +150,9 @@ export function MoneyPicture({
                 <CartesianGrid strokeDasharray="3 3" stroke="#c9d6d3" />
                 <XAxis dataKey="name" tick={{ fill: '#3d524f' }} />
                 <YAxis
+                  width={yAxisWidth}
                   tickFormatter={(v) => formatMoney(v, true)}
-                  tick={{ fill: '#3d524f' }}
+                  tick={{ fill: '#3d524f', fontSize: narrow ? 10 : 12 }}
                 />
                 <Tooltip formatter={(v) => formatMoney(Number(v))} />
                 <Bar dataKey="total" radius={[12, 12, 0, 0]}>
@@ -176,8 +193,11 @@ export function MoneyPicture({
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={118}
-                  tick={{ fill: '#3d524f', fontSize: 11 }}
+                  width={waterfallYWidth}
+                  tick={{
+                    fill: '#3d524f',
+                    fontSize: narrow ? 10 : 11,
+                  }}
                 />
                 <Tooltip
                   formatter={(v, _n, item) => {
@@ -217,16 +237,19 @@ export function MoneyPicture({
                 <CartesianGrid strokeDasharray="3 3" stroke="#c9d6d3" />
                 <XAxis dataKey="name" tick={{ fill: '#3d524f' }} />
                 <YAxis
+                  width={yAxisWidth}
                   tickFormatter={(v) => formatMoney(v, true)}
-                  tick={{ fill: '#3d524f' }}
+                  tick={{ fill: '#3d524f', fontSize: narrow ? 10 : 12 }}
                 />
                 <Tooltip
                   formatter={(v, name) => [formatMoney(Number(v)), String(name)]}
                 />
-                <Legend
-                  wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                  iconType="circle"
-                />
+                {!narrow ? (
+                  <Legend
+                    wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+                    iconType="circle"
+                  />
+                ) : null}
                 {composition.partKeys.map((key, i) => (
                   <Bar
                     key={key}
@@ -300,11 +323,12 @@ export function MoneyPicture({
                   interval={xTickInterval}
                 />
                 <YAxis
+                  width={yAxisWidth}
                   tickFormatter={(v) => formatMoney(v, true)}
-                  tick={{ fill: '#3d524f' }}
+                  tick={{ fill: '#3d524f', fontSize: narrow ? 10 : 12 }}
                 />
                 <Tooltip formatter={(v) => formatMoney(Number(v))} />
-                <Legend />
+                {!narrow ? <Legend /> : null}
                 <Line
                   type="monotone"
                   dataKey="keep"

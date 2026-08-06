@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { cssMotion } from '../../lib/motion'
@@ -8,6 +8,8 @@ import {
   springSnappy,
 } from '../../lib/motionPresets'
 import { cn } from '../../lib/utils'
+
+const SWIPE_THRESHOLD = 40
 
 export interface ImageLightboxProps {
   images: string[]
@@ -28,6 +30,8 @@ export function ImageLightbox({
   const safeIndex = total > 0 ? ((index % total) + total) % total : 0
   const current = total > 0 ? images[safeIndex] : ''
   const reduce = useReducedMotion()
+  const pointerStart = useRef<{ x: number; y: number } | null>(null)
+  const swiping = useRef(false)
 
   const go = useCallback(
     (delta: number) => {
@@ -56,9 +60,39 @@ export function ImageLightbox({
 
   if (total === 0 || !current) return null
 
+  const onPointerDown = (e: React.PointerEvent) => {
+    pointerStart.current = { x: e.clientX, y: e.clientY }
+    swiping.current = false
+  }
+
+  const onPointerUp = (e: React.PointerEvent) => {
+    const start = pointerStart.current
+    pointerStart.current = null
+    if (!start || total <= 1) return
+    const dx = e.clientX - start.x
+    const dy = e.clientY - start.y
+    if (Math.abs(dx) < SWIPE_THRESHOLD || Math.abs(dx) < Math.abs(dy)) return
+    swiping.current = true
+    if (dx < 0) go(1)
+    else go(-1)
+  }
+
+  const onStageClick = (e: React.MouseEvent) => {
+    if (swiping.current) {
+      swiping.current = false
+      return
+    }
+    if (e.target === e.currentTarget) onClose()
+  }
+
   return (
     <motion.div
-      className="fixed inset-0 z-[100] flex flex-col bg-ink/90 p-3 sm:p-5"
+      className={cn(
+        'fixed inset-0 z-[100] flex flex-col bg-ink/95',
+        'pt-[max(0.5rem,env(safe-area-inset-top))]',
+        'pb-[max(0.5rem,env(safe-area-inset-bottom))]',
+        'md:bg-ink/90 md:p-5',
+      )}
       role="dialog"
       aria-modal="true"
       aria-label={title ? `Photos of ${title}` : 'Photo gallery'}
@@ -69,18 +103,18 @@ export function ImageLightbox({
       onClick={onClose}
     >
       <div
-        className="mx-auto flex w-full max-w-6xl shrink-0 items-center justify-between gap-3 text-white"
+        className="mx-auto flex w-full max-w-6xl shrink-0 items-center justify-between gap-3 px-3 text-white md:px-0"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="min-w-0">
           {title ? (
-            <p className="truncate font-display text-lg font-semibold sm:text-xl">
+            <p className="truncate font-display text-base font-semibold md:text-xl">
               {title}
             </p>
           ) : (
-            <p className="font-display text-lg font-semibold">Photos</p>
+            <p className="font-display text-base font-semibold md:text-xl">Photos</p>
           )}
-          <p className="text-sm text-white/70">
+          <p className="text-xs text-white/70 md:text-sm">
             {safeIndex + 1} of {total}
             <span className="hidden sm:inline"> · Esc to close · arrows to browse</span>
           </p>
@@ -89,7 +123,7 @@ export function ImageLightbox({
           type="button"
           onClick={onClose}
           className={cn(
-            'inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white',
+            'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/15 text-white hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white md:h-12 md:w-12 md:rounded-2xl',
             cssMotion.interactive,
           )}
           aria-label="Close gallery"
@@ -99,16 +133,24 @@ export function ImageLightbox({
       </div>
 
       <div
-        className="relative mx-auto mt-3 flex min-h-0 w-full max-w-6xl flex-1 items-center justify-center"
-        onClick={(e) => e.stopPropagation()}
+        className="relative mx-auto mt-2 flex min-h-0 w-full max-w-6xl flex-1 items-center justify-center md:mt-3"
+        onClick={onStageClick}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          pointerStart.current = null
+        }}
       >
         {total > 1 ? (
           <>
             <button
               type="button"
-              onClick={() => go(-1)}
+              onClick={(e) => {
+                e.stopPropagation()
+                go(-1)
+              }}
               className={cn(
-                'absolute left-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:left-2 sm:h-14 sm:w-14',
+                'absolute left-2 z-10 hidden h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white md:inline-flex',
                 cssMotion.interactive,
               )}
               aria-label="Previous photo"
@@ -117,9 +159,12 @@ export function ImageLightbox({
             </button>
             <button
               type="button"
-              onClick={() => go(1)}
+              onClick={(e) => {
+                e.stopPropagation()
+                go(1)
+              }}
               className={cn(
-                'absolute right-0 z-10 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:right-2 sm:h-14 sm:w-14',
+                'absolute right-2 z-10 hidden h-14 w-14 items-center justify-center rounded-2xl bg-white/15 text-white shadow-lg backdrop-blur-sm hover:bg-white/25 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white md:inline-flex',
                 cssMotion.interactive,
               )}
               aria-label="Next photo"
@@ -129,27 +174,31 @@ export function ImageLightbox({
           </>
         ) : null}
 
-        <div className="relative flex h-full max-h-[min(78vh,900px)] w-full items-center justify-center px-12 sm:px-16">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.img
-              key={current}
-              src={current}
-              alt={title ? `${title} photo ${safeIndex + 1}` : `Photo ${safeIndex + 1}`}
-              className="max-h-full max-w-full rounded-xl object-contain shadow-2xl"
-              variants={reduce ? undefined : lightboxImageVariants}
-              initial={reduce ? { opacity: 0 } : 'enter'}
-              animate={reduce ? { opacity: 1 } : 'center'}
-              exit={reduce ? { opacity: 0 } : 'exit'}
-              transition={reduce ? { duration: 0.12 } : springSnappy}
-              referrerPolicy="no-referrer"
-            />
-          </AnimatePresence>
-        </div>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.img
+            key={current}
+            src={current}
+            alt={title ? `${title} photo ${safeIndex + 1}` : `Photo ${safeIndex + 1}`}
+            className={cn(
+              'max-h-full max-w-full object-contain shadow-2xl',
+              'touch-pan-y select-none rounded-none md:rounded-xl',
+              'md:max-h-[min(78vh,900px)]',
+            )}
+            draggable={false}
+            variants={reduce ? undefined : lightboxImageVariants}
+            initial={reduce ? { opacity: 0 } : 'enter'}
+            animate={reduce ? { opacity: 1 } : 'center'}
+            exit={reduce ? { opacity: 0 } : 'exit'}
+            transition={reduce ? { duration: 0.12 } : springSnappy}
+            referrerPolicy="no-referrer"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </AnimatePresence>
       </div>
 
       {total > 1 ? (
         <div
-          className="mx-auto mt-3 flex w-full max-w-6xl gap-2 overflow-x-auto pb-1"
+          className="mx-auto mt-2 flex w-full max-w-6xl gap-2 overflow-x-auto px-3 pb-1 md:mt-3 md:px-0"
           onClick={(e) => e.stopPropagation()}
         >
           {images.map((url, i) => (
@@ -160,7 +209,7 @@ export function ImageLightbox({
               aria-label={`Show photo ${i + 1}`}
               aria-current={i === safeIndex}
               className={cn(
-                'h-14 w-20 shrink-0 overflow-hidden rounded-lg border-2 sm:h-16 sm:w-24',
+                'h-12 w-16 shrink-0 overflow-hidden rounded-lg border-2 sm:h-14 sm:w-20 md:h-16 md:w-24',
                 cssMotion.chip,
                 i === safeIndex
                   ? 'border-honey ring-2 ring-honey/40'
@@ -175,30 +224,6 @@ export function ImageLightbox({
               />
             </button>
           ))}
-        </div>
-      ) : null}
-
-      {total > 1 ? (
-        <div
-          className="mx-auto mt-3 flex w-full max-w-xs gap-2 sm:hidden"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button
-            type="button"
-            onClick={() => go(-1)}
-            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1 rounded-2xl bg-white/15 font-bold text-white"
-          >
-            <ChevronLeft className="h-5 w-5" />
-            Prev
-          </button>
-          <button
-            type="button"
-            onClick={() => go(1)}
-            className="inline-flex min-h-12 flex-1 items-center justify-center gap-1 rounded-2xl bg-white/15 font-bold text-white"
-          >
-            Next
-            <ChevronRight className="h-5 w-5" />
-          </button>
         </div>
       ) : null}
     </motion.div>

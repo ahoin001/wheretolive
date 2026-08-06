@@ -51,17 +51,15 @@ export function AccountPage({
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-4 py-6 md:px-6 md:py-10">
-      <button
+      <Button
         type="button"
+        variant="ghost"
         onClick={onBack}
-        className={cn(
-          'mb-8 inline-flex w-fit items-center gap-2 text-sm font-bold text-ink-soft hover:text-ink',
-          cssMotion.color,
-        )}
+        className={cn('mb-8 min-h-11 w-fit px-3', cssMotion.interactive)}
       >
         <ArrowLeft className="h-4 w-4" />
         Back to places
-      </button>
+      </Button>
 
       <div className="flex flex-1 flex-col justify-center pb-16">
         <p className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
