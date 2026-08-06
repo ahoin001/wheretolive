@@ -273,6 +273,73 @@ function lastLikedMs(place: SavedPlace): number {
   return 0
 }
 
+/** Stable multi-person like colors — hash user id so labels stay the same across places. */
+const LIKER_SWATCHES = [
+  {
+    chip: 'border-honey/45 bg-honey-soft text-[#8a5524]',
+    heart: 'text-honey fill-honey',
+    badge: 'bg-honey text-white',
+    onFill: 'border-honey bg-honey text-white hover:bg-honey/90',
+  },
+  {
+    chip: 'border-sea/50 bg-sea/15 text-sea-deep',
+    heart: 'text-sea-deep fill-sea',
+    badge: 'bg-sea text-white',
+    onFill: 'border-sea bg-sea text-white hover:bg-sea/90',
+  },
+  {
+    chip: 'border-keep/45 bg-keep/15 text-keep',
+    heart: 'text-keep fill-keep',
+    badge: 'bg-keep text-white',
+    onFill: 'border-keep bg-keep text-white hover:bg-keep/90',
+  },
+  {
+    chip: 'border-move/50 bg-move/15 text-move',
+    heart: 'text-move fill-move',
+    badge: 'bg-move text-white',
+    onFill: 'border-move bg-move text-white hover:bg-move/90',
+  },
+  {
+    chip: 'border-warn/45 bg-[#f6ebd6] text-warn',
+    heart: 'text-warn fill-warn',
+    badge: 'bg-warn text-white',
+    onFill: 'border-warn bg-warn text-white hover:bg-warn/90',
+  },
+  {
+    chip: 'border-[#6b8e7a]/45 bg-[#e6f0ea] text-[#3f5e4e]',
+    heart: 'text-[#4f7261] fill-[#4f7261]',
+    badge: 'bg-[#4f7261] text-white',
+    onFill: 'border-[#4f7261] bg-[#4f7261] text-white hover:bg-[#436355]',
+  },
+  {
+    chip: 'border-[#b56b6b]/40 bg-[#f6e8e8] text-[#7a3d3d]',
+    heart: 'text-[#b56b6b] fill-[#b56b6b]',
+    badge: 'bg-[#b56b6b] text-white',
+    onFill: 'border-[#b56b6b] bg-[#b56b6b] text-white hover:bg-[#a35c5c]',
+  },
+  {
+    chip: 'border-[#5c7a99]/45 bg-[#e8eef5] text-[#3a5470]',
+    heart: 'text-[#5c7a99] fill-[#5c7a99]',
+    badge: 'bg-[#5c7a99] text-white',
+    onFill: 'border-[#5c7a99] bg-[#5c7a99] text-white hover:bg-[#4f6b88]',
+  },
+] as const
+
+type LikerSwatch = (typeof LIKER_SWATCHES)[number]
+
+function hashUserId(userId: string): number {
+  let h = 2166136261
+  for (let i = 0; i < userId.length; i++) {
+    h ^= userId.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function swatchForUser(userId: string): LikerSwatch {
+  return LIKER_SWATCHES[hashUserId(userId) % LIKER_SWATCHES.length]!
+}
+
 /** Liked places first, ordered by most recently liked; then recently added. */
 function sortByRecentlyLiked(a: SavedPlace, b: SavedPlace): number {
   const aLike = lastLikedMs(a)
@@ -288,12 +355,10 @@ function sortByRecentlyLiked(a: SavedPlace, b: SavedPlace): number {
 function likedByPeople(
   place: SavedPlace,
   currentUserId: string | undefined,
-): { key: string; label: string }[] {
+): { key: string; label: string; swatch: LikerSwatch }[] {
   const likers =
     place.likedBy && place.likedBy.length
-      ? [...place.likedBy].sort(
-          (a, b) => ms(b.likedAt) - ms(a.likedAt),
-        )
+      ? [...place.likedBy].sort((a, b) => ms(b.likedAt) - ms(a.likedAt))
       : (place.likedByUserIds ?? []).map((userId) => ({
           userId,
           displayName: 'Someone',
@@ -305,6 +370,7 @@ function likedByPeople(
     return {
       key: l.userId,
       label: isMe ? 'You' : l.displayName || 'Someone',
+      swatch: swatchForUser(l.userId),
     }
   })
 }
@@ -680,126 +746,283 @@ export function PlacesWorkspace({
 
   const isRent = form.listingKind === 'rent'
 
-  return (
-    <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-[1.75rem] border border-line bg-panel px-5 py-4 shadow-[var(--shadow-soft)] md:px-7">
-        <div className="min-w-0">
-          <h1 className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
-            Places
-          </h1>
-          {collab.cloudActive && collab.activeList ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {headerRenameOpen && collab.activeList.role === 'owner' ? (
-                <form
-                  className="flex min-w-0 flex-wrap items-center gap-2"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    const name = headerRenameValue.trim()
-                    if (!name || !collab.activeListId) return
-                    setHeaderRenameBusy(true)
-                    void collab
-                      .renamePlaceList(collab.activeListId, name)
-                      .then(() => {
-                        setHeaderRenameOpen(false)
-                        setListToast(`List renamed to “${name}”.`)
-                      })
-                      .catch((err) => {
-                        setListToast(
-                          err instanceof Error
-                            ? err.message
-                            : 'Could not rename list.',
-                        )
-                      })
-                      .finally(() => setHeaderRenameBusy(false))
-                  }}
+  const viewModes = [
+    { id: 'list' as const, label: 'List' },
+    { id: 'tiers' as const, label: 'Board' },
+    { id: 'compare' as const, label: 'Compare' },
+  ]
+
+  const filtersBody = (
+    <>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+          Sort
+        </span>
+        <select
+          value={listSort}
+          onChange={(e) => setListSort(e.target.value as ListSort)}
+          className="min-h-10 w-full rounded-xl border border-line bg-panel px-3 text-sm font-bold text-ink md:min-h-8 md:w-auto md:rounded-lg md:px-2.5"
+        >
+          <option value="recent">Recently added</option>
+          <option value="liked">Recently liked</option>
+          <option value="monthly_asc">Rent · low–high</option>
+          <option value="monthly_desc">Rent · high–low</option>
+        </select>
+      </label>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+          Pets
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <PetsFilterControl
+            value={petsFilter}
+            onChange={setPetsFilter}
+            size="compact"
+          />
+          {collab.isSharedList ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={mutualOnly}
+              onClick={() => setMutualOnly((v) => !v)}
+              className={cn(
+                'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
+                motion.chip,
+                mutualOnly
+                  ? 'border-honey bg-honey text-white'
+                  : 'border-line bg-panel text-ink hover:border-sea',
+              )}
+            >
+              <Heart className={cn('h-3.5 w-3.5', mutualOnly && 'fill-current')} />
+              Mutual
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {availableCities.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+            City
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCityKeys([])}
+              aria-pressed={!cityFilterActive}
+              className={cn(
+                'h-8 rounded-full border px-2.5 text-xs font-bold',
+                motion.chip,
+                !cityFilterActive
+                  ? 'border-sea bg-sea text-white'
+                  : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+              )}
+            >
+              All
+            </button>
+            {availableCities.map((city) => {
+              const on = activeCityKeys.includes(city.key)
+              return (
+                <button
+                  key={city.key}
+                  type="button"
+                  onClick={() => toggleCity(city.key)}
+                  aria-pressed={on}
+                  className={cn(
+                    'h-8 rounded-full border px-2.5 text-xs font-bold',
+                    motion.chip,
+                    on
+                      ? 'border-sea bg-sea text-white'
+                      : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
+                  )}
                 >
-                  <TextInput
-                    className="h-10 min-h-10 w-[min(100%,16rem)]"
-                    value={headerRenameValue}
-                    onChange={(e) => setHeaderRenameValue(e.target.value)}
-                    autoFocus
-                    aria-label="List name"
-                    disabled={headerRenameBusy}
-                  />
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    className="h-9 min-h-9 px-3 text-sm"
-                    disabled={headerRenameBusy || !headerRenameValue.trim()}
+                  {city.label}
+                  <span
+                    className={cn(
+                      'ml-1 tabular-nums',
+                      on ? 'text-white/80' : 'text-ink-soft',
+                    )}
                   >
-                    Save
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-9 min-h-9 px-3 text-sm"
-                    disabled={headerRenameBusy}
-                    onClick={() => setHeaderRenameOpen(false)}
+                    {city.count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
+
+  return (
+    <div className="space-y-3 pb-24 md:space-y-5 md:pb-0">
+      {/* ── Page chrome: list identity + list-level actions ── */}
+      <header className="rounded-[1.25rem] border border-line bg-panel px-3.5 py-3 shadow-[var(--shadow-soft)] md:rounded-[1.75rem] md:px-7 md:py-4">
+        {/* Mobile: single identity row */}
+        <div className="flex items-center gap-2 md:hidden">
+          <div className="min-w-0 flex-1">
+            {collab.cloudActive && collab.activeList ? (
+              <button
+                type="button"
+                onClick={() => setListsOpen(true)}
+                className={cn(
+                  'flex w-full min-w-0 items-center gap-1 text-left',
+                  motion.chip,
+                )}
+              >
+                <span className="truncate font-display text-[1.65rem] font-semibold leading-tight tracking-[-0.02em] text-ink">
+                  {collab.activeList.name}
+                </span>
+                <ChevronDown className="h-5 w-5 shrink-0 text-ink-soft" />
+              </button>
+            ) : (
+              <h1 className="font-display text-[1.65rem] font-semibold tracking-[-0.02em] text-ink">
+                Places
+              </h1>
+            )}
+            <p className="mt-0.5 truncate text-xs text-ink-soft">
+              {collab.cloudActive
+                ? collab.isSharedList
+                  ? 'Shared'
+                  : 'Private'
+                : 'Local'}
+              {' · '}
+              {allPlaces.length} place{allPlaces.length === 1 ? '' : 's'}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-10 min-h-10 shrink-0 rounded-full px-3"
+            onClick={() => setShareOpen(true)}
+            title="Share list"
+            aria-label="Share list"
+          >
+            <Share2 className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Desktop: existing expanded header */}
+        <div className="hidden items-center justify-between gap-3 md:flex">
+          <div className="min-w-0">
+            <h1 className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
+              Places
+            </h1>
+            {collab.cloudActive && collab.activeList ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                {headerRenameOpen && collab.activeList.role === 'owner' ? (
+                  <form
+                    className="flex min-w-0 flex-wrap items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      const name = headerRenameValue.trim()
+                      if (!name || !collab.activeListId) return
+                      setHeaderRenameBusy(true)
+                      void collab
+                        .renamePlaceList(collab.activeListId, name)
+                        .then(() => {
+                          setHeaderRenameOpen(false)
+                          setListToast(`List renamed to “${name}”.`)
+                        })
+                        .catch((err) => {
+                          setListToast(
+                            err instanceof Error
+                              ? err.message
+                              : 'Could not rename list.',
+                          )
+                        })
+                        .finally(() => setHeaderRenameBusy(false))
+                    }}
                   >
-                    Cancel
-                  </Button>
-                </form>
-              ) : (
-                <>
-                  <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-ink-soft">
-                    <FolderOpen className="h-4 w-4 shrink-0" />
-                    <span className="sr-only">Active list</span>
-                    <select
-                      className="max-w-[min(100%,18rem)] rounded-xl border border-line bg-folio px-2.5 py-1.5 text-sm font-bold text-ink"
-                      value={collab.activeListId ?? ''}
-                      onChange={(e) => void collab.selectList(e.target.value)}
+                    <TextInput
+                      className="h-10 min-h-10 w-[min(100%,16rem)]"
+                      value={headerRenameValue}
+                      onChange={(e) => setHeaderRenameValue(e.target.value)}
+                      autoFocus
+                      aria-label="List name"
+                      disabled={headerRenameBusy}
+                    />
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      className="h-9 min-h-9 px-3 text-sm"
+                      disabled={headerRenameBusy || !headerRenameValue.trim()}
                     >
-                      {collab.lists.map((list) => (
-                        <option key={list.id} value={list.id}>
-                          {list.name}
-                          {listIsShared(list) ? ' · shared' : ' · private'}
-                          {list.role !== 'owner' ? ` · ${list.role}` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {collab.activeList.role === 'owner' ? (
+                      Save
+                    </Button>
                     <Button
                       type="button"
                       variant="ghost"
-                      className="h-9 min-h-9 px-2.5 text-sm"
-                      title="Rename this list"
-                      onClick={() => {
-                        setHeaderRenameValue(collab.activeList?.name ?? '')
-                        setHeaderRenameOpen(true)
-                      }}
+                      className="h-9 min-h-9 px-3 text-sm"
+                      disabled={headerRenameBusy}
+                      onClick={() => setHeaderRenameOpen(false)}
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                      Rename
+                      Cancel
                     </Button>
-                  ) : null}
-                </>
-              )}
-            </div>
-          ) : (
-            <p className="mt-1 text-sm text-ink-soft">
-              Sign in to use multiple private or shared lists (great for clients or partners).
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {collab.cloudActive ? (
+                  </form>
+                ) : (
+                  <>
+                    <label className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-ink-soft">
+                      <FolderOpen className="h-4 w-4 shrink-0" />
+                      <span className="sr-only">Active list</span>
+                      <select
+                        className="max-w-[min(100%,18rem)] rounded-xl border border-line bg-folio px-2.5 py-1.5 text-sm font-bold text-ink"
+                        value={collab.activeListId ?? ''}
+                        onChange={(e) => void collab.selectList(e.target.value)}
+                      >
+                        {collab.lists.map((list) => (
+                          <option key={list.id} value={list.id}>
+                            {list.name}
+                            {listIsShared(list) ? ' · shared' : ' · private'}
+                            {list.role !== 'owner' ? ` · ${list.role}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {collab.activeList.role === 'owner' ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-9 min-h-9 px-2.5 text-sm"
+                        title="Rename this list"
+                        onClick={() => {
+                          setHeaderRenameValue(collab.activeList?.name ?? '')
+                          setHeaderRenameOpen(true)
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Rename
+                      </Button>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1 text-sm text-ink-soft">
+                Sign in to use multiple private or shared lists (great for clients or partners).
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {collab.cloudActive ? (
+              <Button
+                variant={listsOpen ? 'primary' : 'secondary'}
+                onClick={() => setListsOpen((v) => !v)}
+              >
+                <FolderOpen className="h-4 w-4" />
+                Lists
+              </Button>
+            ) : null}
             <Button
-              variant={listsOpen ? 'primary' : 'secondary'}
-              onClick={() => setListsOpen((v) => !v)}
+              variant="secondary"
+              onClick={() => setShareOpen(true)}
+              title="Share this list"
             >
-              <FolderOpen className="h-4 w-4" />
-              Lists
+              <Share2 className="h-4 w-4" />
+              Share list
             </Button>
-          ) : null}
-          <Button
-            variant="secondary"
-            onClick={() => setShareOpen(true)}
-            title="Share this list"
-          >
-            <Share2 className="h-4 w-4" />
-            Share list
-          </Button>
+          </div>
         </div>
       </header>
 
@@ -858,22 +1081,40 @@ export function PlacesWorkspace({
         </div>
       ) : null}
 
+      {/* Select: sticky bottom on mobile, inline bar on desktop */}
       {selectMode ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-[1.5rem] border border-line bg-folio/90 px-4 py-3">
+        <div
+          className={cn(
+            'z-40 flex flex-wrap items-center gap-2 border border-line bg-panel/95 px-3 py-2.5 shadow-[var(--shadow-lift)] backdrop-blur-md',
+            'fixed inset-x-3 bottom-[max(0.75rem,env(safe-area-inset-bottom))] rounded-2xl',
+            'md:static md:inset-auto md:rounded-[1.5rem] md:bg-folio/90 md:px-4 md:py-3 md:shadow-[var(--shadow-soft)] md:backdrop-blur-none',
+          )}
+        >
           <p className="text-sm font-bold text-ink">
             {selectedIds.length} selected
           </p>
-          <Button type="button" variant="secondary" onClick={selectAllVisible}>
-            Select all shown
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 min-h-9 px-2.5 text-sm"
+            onClick={selectAllVisible}
+          >
+            All shown
           </Button>
           <Button
             type="button"
-            variant="secondary"
+            variant="ghost"
+            className="hidden h-9 min-h-9 px-2.5 text-sm sm:inline-flex"
             onClick={() => setSelectedIds(allPlaces.map((p) => p.id))}
           >
-            Select full list
+            Full list
           </Button>
-          <Button type="button" variant="ghost" onClick={clearSelection}>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 min-h-9 px-2.5 text-sm"
+            onClick={clearSelection}
+          >
             Clear
           </Button>
           {selectedIds.length > 0 && collab.cloudActive ? (
@@ -881,13 +1122,14 @@ export function PlacesWorkspace({
               <Button
                 type="button"
                 variant="secondary"
+                className="h-9 min-h-9 px-2.5 text-sm"
                 onClick={() => setBulkCopyOpen((v) => !v)}
               >
                 <Copy className="h-4 w-4" />
-                Copy to list
+                <span className="hidden sm:inline">Copy</span>
               </Button>
               {bulkCopyOpen ? (
-                <div className="absolute left-0 top-full z-30 mt-2 w-72">
+                <div className="absolute bottom-full left-0 z-30 mb-2 w-72 md:bottom-auto md:top-full md:mb-0 md:mt-2">
                   <CopyToListMenu
                     collab={collab}
                     placeIds={selectedIds}
@@ -905,48 +1147,96 @@ export function PlacesWorkspace({
             <Button
               type="button"
               variant="danger"
+              className="h-9 min-h-9 px-2.5 text-sm"
               onClick={() =>
                 setDeleteTarget({ kind: 'bulk', ids: [...selectedIds] })
               }
             >
               <Trash2 className="h-4 w-4" />
-              Delete
             </Button>
           ) : null}
           <Button
             type="button"
             variant="honey"
-            className="ml-auto"
+            className="ml-auto h-9 min-h-9 px-3 text-sm"
             onClick={() => setShareOpen(true)}
             disabled={selectedIds.length === 0 && allPlaces.length === 0}
           >
             <Share2 className="h-4 w-4" />
-            Share selected
+            <span className="hidden sm:inline">Share</span>
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 min-h-9 px-2 md:hidden"
+            onClick={() => {
+              setSelectMode(false)
+              clearSelection()
+              setBulkCopyOpen(false)
+            }}
+            aria-label="Done selecting"
+          >
+            <X className="h-4 w-4" />
           </Button>
         </div>
       ) : null}
 
-      <section className="rounded-[1.75rem] border border-line bg-panel p-3 shadow-[var(--shadow-soft)] md:p-5">
-        <div className="flex flex-wrap items-center gap-2 border-b border-line pb-3">
-          {(['list', 'tiers', 'compare'] as const).map((mode) => (
-            <Button
-              key={mode}
-              variant={view === mode ? 'primary' : 'secondary'}
-              className="h-9 min-h-9 rounded-xl px-3 text-sm"
-              onClick={() => setView(mode)}
-            >
-              {mode === 'list' ? 'List' : mode === 'tiers' ? 'Tier board' : 'Compare'}
-            </Button>
-          ))}
+      <section className="overflow-hidden rounded-[1.25rem] border border-line bg-panel shadow-[var(--shadow-soft)] md:rounded-[1.75rem]">
+        {/* View + primary list tools */}
+        <div className="flex flex-col gap-2.5 border-b border-line px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3 md:px-5 md:py-3">
+          <div
+            role="tablist"
+            aria-label="Places view"
+            className="inline-flex w-full rounded-full border border-line bg-folio p-0.5 sm:w-auto"
+          >
+            {viewModes.map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                role="tab"
+                aria-selected={view === mode.id}
+                onClick={() => setView(mode.id)}
+                className={cn(
+                  'min-h-9 flex-1 rounded-full px-3 text-sm font-bold sm:flex-none sm:px-4',
+                  motion.chip,
+                  view === mode.id
+                    ? 'bg-sea text-white shadow-[var(--shadow-soft)]'
+                    : 'text-ink-soft hover:text-ink',
+                )}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+
           {view === 'compare' && moveBudget != null ? (
-            <span className="text-sm text-ink-soft">
-              Move budget: <strong className="text-ink">{formatMoney(moveBudget)}</strong>/mo
+            <span className="hidden text-sm text-ink-soft md:inline">
+              Move budget:{' '}
+              <strong className="text-ink">{formatMoney(moveBudget)}</strong>/mo
             </span>
           ) : null}
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+
+          <div className="flex items-center gap-1.5 sm:ml-auto">
             <Button
+              type="button"
+              variant={
+                filtersOpen || activeFilterCount > 0 ? 'primary' : 'secondary'
+              }
+              className="h-9 min-h-9 flex-1 rounded-full px-3 text-sm sm:flex-none md:hidden"
+              onClick={() => setFiltersOpen(true)}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Filters
+              {activeFilterCount > 0 ? (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/20 px-1.5 text-[11px]">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </Button>
+            <Button
+              type="button"
               variant={selectMode ? 'primary' : 'secondary'}
-              className="h-9 min-h-9 rounded-xl px-3 text-sm"
+              className="h-9 min-h-9 rounded-full px-3 text-sm"
               onClick={() => {
                 setSelectMode((v) => !v)
                 if (selectMode) clearSelection()
@@ -958,126 +1248,36 @@ export function PlacesWorkspace({
               ) : (
                 <Square className="h-3.5 w-3.5" />
               )}
-              Select
+              <span className="sm:inline">Select</span>
             </Button>
             <Button
+              type="button"
               variant="honey"
-              className="h-9 min-h-9 rounded-xl px-3 text-sm"
+              className="h-9 min-h-9 rounded-full px-3 text-sm"
               onClick={openNewPlace}
             >
               <Plus className="h-3.5 w-3.5" />
-              Add place
+              <span className="hidden sm:inline">Add place</span>
+              <span className="sm:hidden">Add</span>
             </Button>
           </div>
         </div>
 
-        <div className="mt-3">
+        <div className="p-3 md:p-5">
           {view === 'list' ? (
             <div className="space-y-3">
-              <div className="rounded-xl border border-line bg-folio/50 px-3 py-2.5 md:px-3.5">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                  <label className="inline-flex items-center gap-2 text-xs font-bold text-ink-soft">
-                    Sort
-                    <select
-                      value={listSort}
-                      onChange={(e) => setListSort(e.target.value as ListSort)}
-                      className="min-h-8 rounded-lg border border-line bg-panel px-2.5 text-sm font-bold text-ink"
-                    >
-                      <option value="recent">Recently added</option>
-                      <option value="liked">Recently liked</option>
-                      <option value="monthly_asc">Rent · low–high</option>
-                      <option value="monthly_desc">Rent · high–low</option>
-                    </select>
-                  </label>
-
-                  <span className="hidden h-5 w-px bg-line sm:block" aria-hidden />
-
-                  <div className="inline-flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold text-ink-soft">Pets</span>
-                    <PetsFilterControl
-                      value={petsFilter}
-                      onChange={setPetsFilter}
-                      size="compact"
-                    />
-                    {collab.isSharedList ? (
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={mutualOnly}
-                        onClick={() => setMutualOnly((v) => !v)}
-                        className={cn(
-                          'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
-                          motion.chip,
-                          mutualOnly
-                            ? 'border-honey bg-honey text-white'
-                            : 'border-line bg-panel text-ink hover:border-sea',
-                        )}
-                      >
-                        <Heart
-                          className={cn('h-3.5 w-3.5', mutualOnly && 'fill-current')}
-                        />
-                        Mutual
-                      </button>
-                    ) : null}
-                  </div>
-
-                  <p className="ml-auto text-xs text-ink-soft">
+              {/* Desktop filters stay inline; mobile uses Filters sheet */}
+              <div className="hidden rounded-xl border border-line bg-folio/50 px-3.5 py-2.5 md:block">
+                <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+                  {filtersBody}
+                  <p className="ml-auto pb-1 text-xs text-ink-soft">
                     <span className="font-bold text-ink">{listPlaces.length}</span>/
                     {allPlaces.length}
                     {hasActiveFilters ? ' match' : ''}
                   </p>
                 </div>
-
-                {availableCities.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/80 pt-2">
-                    <span className="mr-0.5 text-xs font-bold text-ink-soft">City</span>
-                    <button
-                      type="button"
-                      onClick={() => setCityKeys([])}
-                      aria-pressed={!cityFilterActive}
-                      className={cn(
-                        'h-7 rounded-full border px-2.5 text-xs font-bold',
-                        motion.chip,
-                        !cityFilterActive
-                          ? 'border-sea bg-sea text-white'
-                          : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
-                      )}
-                    >
-                      All
-                    </button>
-                    {availableCities.map((city) => {
-                      const on = activeCityKeys.includes(city.key)
-                      return (
-                        <button
-                          key={city.key}
-                          type="button"
-                          onClick={() => toggleCity(city.key)}
-                          aria-pressed={on}
-                          className={cn(
-                            'h-7 rounded-full border px-2.5 text-xs font-bold',
-                            motion.chip,
-                            on
-                              ? 'border-sea bg-sea text-white'
-                              : 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
-                          )}
-                        >
-                          {city.label}
-                          <span
-                            className={cn(
-                              'ml-1 tabular-nums',
-                              on ? 'text-white/80' : 'text-ink-soft',
-                            )}
-                          >
-                            {city.count}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null}
-
                 {(hasActiveFilters || listSort !== 'recent') && (
-                  <div className="mt-1.5 flex justify-end">
+                  <div className="mt-2 flex justify-end border-t border-line/80 pt-2">
                     <Button
                       variant="ghost"
                       className="h-8 min-h-8 px-2 text-xs"
@@ -1088,6 +1288,29 @@ export function PlacesWorkspace({
                   </div>
                 )}
               </div>
+
+              {/* Mobile: slim active-filter summary */}
+              {activeFilterCount > 0 ? (
+                <div className="flex items-center gap-2 md:hidden">
+                  <p className="min-w-0 flex-1 truncate text-xs text-ink-soft">
+                    <span className="font-bold text-ink">{listPlaces.length}</span>{' '}
+                    of {allPlaces.length}
+                    {hasActiveFilters ? ' match filters' : ''}
+                  </p>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs font-bold text-sea-deep"
+                    onClick={clearAllFilters}
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-ink-soft md:hidden">
+                  <span className="font-bold text-ink">{listPlaces.length}</span>{' '}
+                  places
+                </p>
+              )}
 
               {listPlaces.length === 0 ? (
                 allPlaces.length === 0 ? (
@@ -1125,6 +1348,9 @@ export function PlacesWorkspace({
                         collab.isSharedList
                           ? likedByPeople(place, auth.user?.id)
                           : []
+                      }
+                      mySwatch={
+                        auth.user?.id ? swatchForUser(auth.user.id) : undefined
                       }
                       onEdit={() => startEdit(place)}
                       onCopyToList={
@@ -1164,91 +1390,31 @@ export function PlacesWorkspace({
 
           {view === 'tiers' ? (
             <div className="space-y-4">
-              <div className="rounded-xl border border-line bg-folio/50 px-3 py-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-xs font-bold text-ink-soft">Pets</span>
-                    <PetsFilterControl
-                      value={petsFilter}
-                      onChange={setPetsFilter}
-                      size="compact"
-                    />
-                    {collab.isSharedList ? (
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={mutualOnly}
-                        onClick={() => setMutualOnly((v) => !v)}
-                        className={cn(
-                          'inline-flex min-h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
-                          motion.chip,
-                          mutualOnly
-                            ? 'border-honey bg-honey text-white'
-                            : 'border-line bg-panel text-ink hover:border-sea',
-                        )}
-                      >
-                        <Heart
-                          className={cn('h-3.5 w-3.5', mutualOnly && 'fill-current')}
-                        />
-                        Mutual
-                      </button>
-                    ) : null}
-                  </div>
-                  <p className="ml-auto text-xs text-ink-soft">
+              <div className="hidden rounded-xl border border-line bg-folio/50 px-3 py-2.5 md:block">
+                <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+                  {filtersBody}
+                  <p className="ml-auto pb-1 text-xs text-ink-soft">
                     {hasActiveFilters
                       ? `${boardPlaces.length} match`
                       : `${boardPlaces.length} places`}
                   </p>
                 </div>
-
-                {availableCities.length > 0 ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-line/80 pt-2">
-                    <span className="mr-0.5 text-xs font-bold text-ink-soft">City</span>
-                    <button
-                      type="button"
-                      onClick={() => setCityKeys([])}
-                      aria-pressed={!cityFilterActive}
-                      className={cn(
-                        'h-7 rounded-full border px-2.5 text-xs font-bold',
-                        motion.chip,
-                        !cityFilterActive
-                          ? 'border-sea bg-sea text-white'
-                          : 'border-line bg-panel text-ink hover:border-sea',
-                      )}
-                    >
-                      All
-                    </button>
-                    {availableCities.map((city) => {
-                      const on = activeCityKeys.includes(city.key)
-                      return (
-                        <button
-                          key={city.key}
-                          type="button"
-                          onClick={() => toggleCity(city.key)}
-                          aria-pressed={on}
-                          className={cn(
-                            'h-7 rounded-full border px-2.5 text-xs font-bold',
-                            motion.chip,
-                            on
-                              ? 'border-sea bg-sea text-white'
-                              : 'border-line bg-panel text-ink hover:border-sea',
-                          )}
-                        >
-                          {city.label}
-                          <span
-                            className={cn(
-                              'ml-1 tabular-nums',
-                              on ? 'text-white/80' : 'text-ink-soft',
-                            )}
-                          >
-                            {city.count}
-                          </span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null}
               </div>
+              {activeFilterCount > 0 ? (
+                <div className="flex items-center gap-2 md:hidden">
+                  <p className="min-w-0 flex-1 truncate text-xs text-ink-soft">
+                    <span className="font-bold text-ink">{boardPlaces.length}</span>{' '}
+                    match filters
+                  </p>
+                  <button
+                    type="button"
+                    className="shrink-0 text-xs font-bold text-sea-deep"
+                    onClick={clearAllFilters}
+                  >
+                    Clear
+                  </button>
+                </div>
+              ) : null}
               {TIERS.map((tier) => {
                 const placesInTier = boardPlaces.filter((p) => p.tier === tier)
                 return (
@@ -1984,6 +2150,55 @@ export function PlacesWorkspace({
         onClose={() => setShareOpen(false)}
       />
 
+      <SideDrawer
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        aria-label="Sort and filters"
+        panelClassName="max-w-full sm:max-w-md"
+      >
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <h2 className="font-display text-xl font-semibold text-ink">
+              Sort & filters
+            </h2>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 min-h-9 rounded-full px-2"
+              onClick={() => setFiltersOpen(false)}
+              aria-label="Close filters"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
+            {filtersBody}
+          </div>
+          <div className="flex gap-2 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11 min-h-11 flex-1 rounded-xl text-sm"
+              onClick={clearAllFilters}
+            >
+              Reset
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className="h-11 min-h-11 flex-[1.4] rounded-xl text-sm"
+              onClick={() => setFiltersOpen(false)}
+            >
+              Show {view === 'tiers' ? boardPlaces.length : listPlaces.length}{' '}
+              place
+              {(view === 'tiers' ? boardPlaces.length : listPlaces.length) === 1
+                ? ''
+                : 's'}
+            </Button>
+          </div>
+        </div>
+      </SideDrawer>
+
       <ConfirmDialog
         open={deleteTarget != null}
         title={
@@ -2253,6 +2468,7 @@ function PlaceCard({
   onCopyToList?: () => void
   copyMenu?: ReactNode
 }) {
+  const [menuOpen, setMenuOpen] = useState(false)
   const images = placeImages(place)
   const liked = isLikedByMe(place)
   const over =
@@ -2277,18 +2493,18 @@ function PlaceCard({
   return (
     <article
       className={cn(
-        'overflow-hidden rounded-[1.25rem] border bg-panel/90 shadow-[var(--shadow-soft)] sm:flex',
+        'overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)] sm:flex sm:rounded-[1.25rem]',
         motion.color,
-        checked ? 'border-sea ring-2 ring-sea/25' : 'border-line hover:border-sea/60',
+        checked ? 'border-sea ring-2 ring-sea/25' : 'border-line sm:hover:border-sea/60',
       )}
     >
-      {/* Thumbnail — shorter on all breakpoints */}
+      {/* Media — full-bleed on mobile (Airbnb/Zillow style), rail on desktop */}
       <div className="relative sm:w-36 sm:shrink-0 md:w-40">
         {selectMode ? (
           <button
             type="button"
             onClick={onToggleSelect}
-            className="absolute left-2 top-2 z-10 rounded-lg bg-panel/95 p-1.5 shadow-[var(--shadow-soft)]"
+            className="absolute left-2.5 top-2.5 z-10 rounded-full bg-panel/95 p-2 shadow-[var(--shadow-soft)]"
             aria-pressed={checked}
             aria-label={checked ? 'Deselect place' : 'Select place'}
           >
@@ -2305,32 +2521,45 @@ function PlaceCard({
             index={0}
             title={place.title || 'Untitled place'}
             onOpen={onOpenImages}
-            className="h-32 w-full sm:h-full sm:min-h-[7.5rem]"
-            imgClassName="h-32 sm:h-full sm:min-h-[7.5rem] object-cover"
+            className="aspect-[16/10] w-full sm:aspect-auto sm:h-full sm:min-h-[7.5rem]"
+            imgClassName="h-full w-full object-cover sm:min-h-[7.5rem]"
           />
         ) : (
-          <div className="flex h-32 w-full items-center justify-center bg-folio text-xs font-bold text-ink-soft sm:min-h-[7.5rem]">
+          <div className="flex aspect-[16/10] w-full items-center justify-center bg-folio text-xs font-bold text-ink-soft sm:aspect-auto sm:min-h-[7.5rem]">
             No photo
           </div>
         )}
         {images.length > 1 ? (
-          <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded-full bg-ink/70 px-1.5 py-0.5 text-[10px] font-bold text-white">
-            {images.length}
+          <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] font-bold text-white">
+            {images.length} photos
           </span>
         ) : null}
+        {!selectMode ? (
+          <button
+            type="button"
+            onClick={onFavorite}
+            aria-pressed={liked}
+            aria-label={liked ? 'Unlike place' : 'Like place'}
+            className={cn(
+              'absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-white/40 bg-ink/35 text-white backdrop-blur-sm sm:hidden',
+              motion.chip,
+              liked && 'bg-honey/95 text-white',
+            )}
+          >
+            <Heart className={cn('h-4 w-4', liked && 'fill-current')} />
+          </button>
+        ) : null}
         {liked && !selectMode ? (
-          <span className="pointer-events-none absolute right-1.5 top-1.5 rounded-full bg-honey/95 p-1 text-white shadow-sm">
+          <span className="pointer-events-none absolute right-1.5 top-1.5 hidden rounded-full bg-honey/95 p-1 text-white shadow-sm sm:block">
             <Heart className="h-3 w-3 fill-current" />
           </span>
         ) : null}
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col justify-between gap-2 p-3 sm:px-4 sm:py-3">
-        {/* Top: title + actions */}
+      <div className="flex min-w-0 flex-1 flex-col justify-between gap-2 p-3.5 sm:gap-2 sm:px-4 sm:py-3">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            {/* Meta: kind · tier · status · pets (inline) */}
-            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs font-bold leading-none text-sea-deep">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] font-bold leading-none text-sea-deep sm:text-xs">
               <span>{place.listingKind === 'rent' ? 'Rental' : 'Buy'}</span>
               <span className="text-line" aria-hidden>
                 ·
@@ -2352,7 +2581,7 @@ function PlaceCard({
               onClick={onEdit}
               className="mt-1 block w-full text-left"
             >
-              <h3 className="font-display text-lg font-semibold leading-snug tracking-[-0.02em] text-ink sm:text-xl">
+              <h3 className="font-display text-xl font-semibold leading-snug tracking-[-0.02em] text-ink sm:text-xl">
                 <span className="line-clamp-2 sm:line-clamp-1">
                   {place.title || 'Untitled place'}
                 </span>
@@ -2362,8 +2591,8 @@ function PlaceCard({
             <p className="mt-0.5 truncate text-sm text-ink-soft">{locationLine}</p>
           </div>
 
-          {/* Actions — where Compare was; Open listing lives here */}
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1 sm:gap-1.5">
+          {/* Desktop action cluster */}
+          <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 sm:flex">
             {selectMode ? (
               <Button
                 type="button"
@@ -2381,12 +2610,11 @@ function PlaceCard({
                     target="_blank"
                     rel="noreferrer"
                     variant="primary"
-                    className="h-9 min-h-9 rounded-xl px-2.5 text-sm sm:px-3"
+                    className="h-9 min-h-9 rounded-xl px-3 text-sm"
                     title="Open listing"
                   >
                     <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                    <span className="hidden sm:inline">Open listing</span>
-                    <span className="sm:hidden">Listing</span>
+                    Open listing
                   </ButtonLink>
                 ) : null}
                 <Button
@@ -2402,7 +2630,7 @@ function PlaceCard({
                 <Button
                   type="button"
                   variant="secondary"
-                  className="h-9 min-h-9 rounded-xl px-2.5 text-sm sm:px-3"
+                  className="h-9 min-h-9 rounded-xl px-3 text-sm"
                   onClick={onEdit}
                 >
                   Edit
@@ -2435,12 +2663,11 @@ function PlaceCard({
 
         {copyMenu ? <div className="relative z-20">{copyMenu}</div> : null}
 
-        {/* Bottom: price + beds + tags + optional note / mutual like — one tight block */}
         <div className="flex flex-col gap-1.5">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
             <span
               className={cn(
-                'text-base font-bold tabular-nums sm:text-lg',
+                'text-lg font-bold tabular-nums sm:text-lg',
                 place.listingKind === 'rent'
                   ? over
                     ? 'text-warn'
@@ -2477,8 +2704,8 @@ function PlaceCard({
 
           {(place.proTags?.length || place.concernTags?.length) ? (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <TagRow labels={place.proTags} tone="pro" max={4} />
-              <TagRow labels={place.concernTags} tone="con" max={3} />
+              <TagRow labels={place.proTags} tone="pro" max={3} />
+              <TagRow labels={place.concernTags} tone="con" max={2} />
             </div>
           ) : null}
 
@@ -2486,9 +2713,94 @@ function PlaceCard({
             <p className="line-clamp-1 text-xs text-ink-soft sm:text-sm">{place.notes}</p>
           ) : null}
 
+          {/* Mobile bottom actions — photo-led, tools one layer deeper */}
+          {!selectMode ? (
+            <div className="mt-0.5 flex items-center gap-1.5 border-t border-line/70 pt-2 sm:hidden">
+              {place.url ? (
+                <ButtonLink
+                  href={place.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  variant="secondary"
+                  className="h-9 min-h-9 flex-1 rounded-full px-3 text-sm"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Listing
+                </ButtonLink>
+              ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-9 min-h-9 flex-1 rounded-full px-3 text-sm"
+                onClick={onEdit}
+              >
+                Edit
+              </Button>
+              <div className="relative">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-9 min-h-9 rounded-full px-2.5"
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-expanded={menuOpen}
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+                {menuOpen ? (
+                  <>
+                    <button
+                      type="button"
+                      className="fixed inset-0 z-20 cursor-default"
+                      aria-label="Close menu"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[var(--shadow-lift)]">
+                      {onCopyToList ? (
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onCopyToList()
+                          }}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                          Copy to list
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-warn hover:bg-folio"
+                        onClick={() => {
+                          setMenuOpen(false)
+                          onDelete()
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Remove
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-0.5 border-t border-line/70 pt-2 sm:hidden">
+              <Button
+                type="button"
+                variant={checked ? 'primary' : 'secondary'}
+                className="h-9 min-h-9 w-full rounded-full text-sm"
+                onClick={onToggleSelect}
+              >
+                {checked ? 'Selected' : 'Select'}
+              </Button>
+            </div>
+          )}
+
           {images.length > 1 ? (
             <div
-              className="-mx-0.5 flex gap-1.5 overflow-x-auto pb-0.5 pt-0.5"
+              className="-mx-0.5 hidden gap-1.5 overflow-x-auto pb-0.5 pt-0.5 sm:flex"
               aria-label={`${images.length} photos`}
             >
               {images.map((url, index) => (
