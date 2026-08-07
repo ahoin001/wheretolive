@@ -1,0 +1,5 @@
+-- Guest share create RPC (single jsonb payload for reliable PostgREST matching).
+-- Applied remotely via loveable Supabase MCP; kept for repo history.
+--
+-- public.nc_create_place_share(p_payload jsonb)
+-- payload shape: { kind, title, places[], expiresDays? }

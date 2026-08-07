@@ -426,25 +426,23 @@ export async function createPlaceShareLink(input: {
     throw new Error('Pick at least one place to share.')
   }
   const kind: ShareKind = snapshots.length === 1 ? 'place' : 'collection'
-  const args: {
-    p_kind: string
-    p_title: string | null
-    p_places: SharedPlaceSnapshot[]
-    p_expires_days?: number
-  } = {
-    p_kind: kind,
-    p_title: input.title ?? null,
-    p_places: snapshots,
+  const payload: Record<string, unknown> = {
+    kind,
+    title: input.title ?? null,
+    places: snapshots,
   }
   if (
     typeof input.expiresDays === 'number' &&
     Number.isFinite(input.expiresDays) &&
     input.expiresDays > 0
   ) {
-    args.p_expires_days = Math.floor(input.expiresDays)
+    payload.expiresDays = Math.floor(input.expiresDays)
   }
 
-  const { data, error } = await client.rpc('nc_create_place_share', args)
+  // Prefer single jsonb payload; legacy multi-arg kept server-side for stale clients.
+  const { data, error } = await client.rpc('nc_create_place_share', {
+    p_payload: payload,
+  })
   if (error) {
     const code = (error as { code?: string }).code
     if (code === 'PGRST202' || /schema cache|not find the function/i.test(error.message)) {

@@ -23,18 +23,35 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { AnimatePresence, motion as m } from 'motion/react'
 import type { PetsPolicy, PlaceTier, SavedPlace } from '../../domain/types'
+import { PLACE_SQFT_FILTER_OPTIONS } from '../../domain/types'
 import {
-  compareBoardOrder,
   groupPlacesByTier,
   isPlaceTier,
   movePlaceOnBoard,
   type BoardPlacement,
 } from '../../domain/places/boardOrder'
+import {
+  applyTierReview,
+  citiesInPlaces,
+  DEFAULT_TIER_REVIEW,
+  isTierReviewActive,
+  TIER_BOARD_SORT_OPTIONS,
+  type TierReviewState,
+} from '../../domain/places/tierReview'
 import { formatMoney } from '../../domain/finance/calculations'
 import { motion } from '../../lib/motion'
 import { tweenPanel, easeSnappy } from '../../lib/motionPresets'
 import { cn } from '../../lib/utils'
 import { OpenableImage } from './ImageLightbox'
+
+function emptyReviews(): Record<PlaceTier, TierReviewState> {
+  return {
+    dream: { ...DEFAULT_TIER_REVIEW },
+    strong: { ...DEFAULT_TIER_REVIEW },
+    maybe: { ...DEFAULT_TIER_REVIEW },
+    pass: { ...DEFAULT_TIER_REVIEW },
+  }
+}
 
 const TIERS: PlaceTier[] = ['dream', 'strong', 'maybe', 'pass']
 
@@ -163,8 +180,6 @@ export function TierBoard({
   onOpenLightbox,
   onReorder,
 }: TierBoardProps) {
-  const canDrag = reorderEnabled && !selectMode
-
   const byTier = useMemo(() => groupPlacesByTier(places), [places])
 
   const [items, setItems] = useState<Record<PlaceTier, string[]>>(() => ({
@@ -173,6 +188,10 @@ export function TierBoard({
     maybe: byTier.maybe.map((p) => p.id),
     pass: byTier.pass.map((p) => p.id),
   }))
+
+  /** Per-tier temporary review — never written to boardOrder. */
+  const [reviews, setReviews] =
+    useState<Record<PlaceTier, TierReviewState>>(emptyReviews)
 
   useEffect(() => {
     setItems({
@@ -183,11 +202,57 @@ export function TierBoard({
     })
   }, [byTier])
 
+  // Drop city filters that no longer exist in a tier’s places
+  useEffect(() => {
+    setReviews((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const tier of TIERS) {
+        const key = prev[tier].cityKey
+        if (!key) continue
+        const cities = citiesInPlaces(byTier[tier])
+        if (!cities.some((c) => c.key === key)) {
+          next[tier] = { ...prev[tier], cityKey: '' }
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [byTier])
+
   const placeById = useMemo(() => {
     const map = new Map<string, SavedPlace>()
     for (const p of places) map.set(p.id, p)
     return map
   }, [places])
+
+  const reviewActiveAnywhere = TIERS.some((tier) =>
+    isTierReviewActive(reviews[tier]),
+  )
+  const canDrag = reorderEnabled && !selectMode && !reviewActiveAnywhere
+
+  const placesForTier = (tier: PlaceTier): SavedPlace[] => {
+    const ordered = items[tier]
+      .map((id) => placeById.get(id))
+      .filter((p): p is SavedPlace => Boolean(p))
+    return applyTierReview(ordered, reviews[tier])
+  }
+
+  const patchReview = (tier: PlaceTier, patch: Partial<TierReviewState>) => {
+    setReviews((prev) => ({
+      ...prev,
+      [tier]: { ...prev[tier], ...patch },
+    }))
+  }
+
+  const resetReview = (tier: PlaceTier) => {
+    setReviews((prev) => ({
+      ...prev,
+      [tier]: { ...DEFAULT_TIER_REVIEW },
+    }))
+  }
+
+  const resetAllReviews = () => setReviews(emptyReviews())
 
   const firstPopulated = useMemo(
     () => TIERS.find((tier) => byTier[tier].length > 0) ?? 'dream',
@@ -328,20 +393,37 @@ export function TierBoard({
     setActiveId(null)
   }
 
-  const mobileIds = items[mobileTier]
-  const mobilePlaces = mobileIds
-    .map((id) => placeById.get(id))
-    .filter((p): p is SavedPlace => Boolean(p))
+  const mobileBoardIds = items[mobileTier]
+  const mobilePlaces = placesForTier(mobileTier)
+  const mobileDisplayIds = mobilePlaces.map((p) => p.id)
+  const mobileReview = reviews[mobileTier]
+  const mobileReviewOn = isTierReviewActive(mobileReview)
 
   return (
-    <div className="space-y-3">
-      {!reorderEnabled && !selectMode ? (
+    <div className="min-w-0 space-y-3">
+      {reviewActiveAnywhere ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-honey/35 bg-honey-soft/70 px-3 py-2">
+          <p className="text-xs text-ink-soft md:text-sm">
+            Temporary review is on — your dragged order stays saved. Reset to
+            drag again.
+          </p>
+          <button
+            type="button"
+            className="shrink-0 text-xs font-bold text-sea-deep"
+            onClick={resetAllReviews}
+          >
+            Reset all
+          </button>
+        </div>
+      ) : !reorderEnabled && !selectMode ? (
         <p className="text-xs text-ink-soft md:text-sm">
-          Clear filters to drag places between tiers or reorder left to right.
+          Clear list filters to drag places between tiers or reorder left to
+          right.
         </p>
       ) : canDrag ? (
         <p className="hidden text-xs text-ink-soft md:block">
           Drag places left to right within a tier, or up and down across tiers.
+          Use each tier’s sort to temporarily review by price, sqft, or city.
         </p>
       ) : null}
 
@@ -403,13 +485,26 @@ export function TierBoard({
                   {TIER_META[mobileTier].label}
                 </h3>
                 <span className="text-xs font-bold text-ink-soft">
-                  {mobilePlaces.length === 0
+                  {mobileBoardIds.length === 0
                     ? 'Empty'
-                    : `${mobilePlaces.length} ${
-                        mobilePlaces.length === 1 ? 'place' : 'places'
-                      }`}
+                    : mobileReviewOn
+                      ? `${mobilePlaces.length} of ${mobileBoardIds.length}`
+                      : `${mobilePlaces.length} ${
+                          mobilePlaces.length === 1 ? 'place' : 'places'
+                        }`}
                 </span>
               </div>
+
+              {mobileBoardIds.length > 0 ? (
+                <TierReviewBar
+                  tier={mobileTier}
+                  placesInTier={byTier[mobileTier]}
+                  state={mobileReview}
+                  onChange={(patch) => patchReview(mobileTier, patch)}
+                  onReset={() => resetReview(mobileTier)}
+                  className="mb-2.5"
+                />
+              ) : null}
 
               <div
                 className={cn(
@@ -417,13 +512,17 @@ export function TierBoard({
                     'rounded-2xl border border-dashed border-line bg-folio/50 px-4 py-10 text-center',
                 )}
               >
-                {mobilePlaces.length === 0 ? (
+                {mobileBoardIds.length === 0 ? (
                   <p className="text-sm font-bold text-ink-soft">
                     {TIER_META[mobileTier].emptyHint}
                   </p>
+                ) : mobilePlaces.length === 0 ? (
+                  <p className="text-sm font-bold text-ink-soft">
+                    No places match this tier’s temporary filters.
+                  </p>
                 ) : (
                   <SortableContext
-                    items={mobileIds}
+                    items={mobileDisplayIds}
                     strategy={rectSortingStrategy}
                     disabled={!canDrag}
                   >
@@ -475,11 +574,14 @@ export function TierBoard({
         <div className="hidden min-w-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-soft)] md:block">
           {TIERS.map((tier, index) => {
             const ids = items[tier]
-            const placesInTier = ids
+            const boardPlacesInTier = ids
               .map((id) => placeById.get(id))
               .filter((p): p is SavedPlace => Boolean(p))
-              .sort(compareBoardOrder)
-            const empty = placesInTier.length === 0
+            const placesInTier = applyTierReview(boardPlacesInTier, reviews[tier])
+            const displayIds = placesInTier.map((p) => p.id)
+            const reviewOn = isTierReviewActive(reviews[tier])
+            const empty = boardPlacesInTier.length === 0
+            const filteredEmpty = !empty && placesInTier.length === 0
             const meta = TIER_META[tier]
             return (
               <section
@@ -501,7 +603,11 @@ export function TierBoard({
                     {meta.short}
                   </p>
                   <p className="text-[11px] font-bold tabular-nums opacity-80">
-                    {empty ? '—' : placesInTier.length}
+                    {empty
+                      ? '—'
+                      : reviewOn
+                        ? `${placesInTier.length}/${boardPlacesInTier.length}`
+                        : placesInTier.length}
                   </p>
                 </div>
 
@@ -516,31 +622,46 @@ export function TierBoard({
                   {empty ? (
                     <p className="text-sm text-ink-soft">{meta.emptyHint}</p>
                   ) : (
-                    <SortableContext
-                      items={ids}
-                      strategy={rectSortingStrategy}
-                      disabled={!canDrag}
-                    >
-                      <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,10.5rem),1fr))] gap-2.5">
-                        {placesInTier.map((place) => (
-                          <li key={place.id} className="min-w-0">
-                            <SortableBoardTile
-                              place={place}
-                              selected={selectedIds.includes(place.id)}
-                              selectMode={selectMode}
-                              density="desktop"
-                              canDrag={canDrag}
-                              onActivate={() =>
-                                selectMode
-                                  ? onToggleSelect(place.id)
-                                  : onEdit(place)
-                              }
-                              onOpenLightbox={onOpenLightbox}
-                            />
-                          </li>
-                        ))}
-                      </ul>
-                    </SortableContext>
+                    <div className="space-y-2.5">
+                      <TierReviewBar
+                        tier={tier}
+                        placesInTier={byTier[tier]}
+                        state={reviews[tier]}
+                        onChange={(patch) => patchReview(tier, patch)}
+                        onReset={() => resetReview(tier)}
+                      />
+                      {filteredEmpty ? (
+                        <p className="text-sm text-ink-soft">
+                          No places match this temporary review.
+                        </p>
+                      ) : (
+                        <SortableContext
+                          items={displayIds}
+                          strategy={rectSortingStrategy}
+                          disabled={!canDrag}
+                        >
+                          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,10.5rem),1fr))] gap-2.5">
+                            {placesInTier.map((place) => (
+                              <li key={place.id} className="min-w-0">
+                                <SortableBoardTile
+                                  place={place}
+                                  selected={selectedIds.includes(place.id)}
+                                  selectMode={selectMode}
+                                  density="desktop"
+                                  canDrag={canDrag}
+                                  onActivate={() =>
+                                    selectMode
+                                      ? onToggleSelect(place.id)
+                                      : onEdit(place)
+                                  }
+                                  onOpenLightbox={onOpenLightbox}
+                                />
+                              </li>
+                            ))}
+                          </ul>
+                        </SortableContext>
+                      )}
+                    </div>
                   )}
                 </TierDropZone>
               </section>
@@ -564,6 +685,107 @@ export function TierBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
+    </div>
+  )
+}
+
+function TierReviewBar({
+  tier,
+  placesInTier,
+  state,
+  onChange,
+  onReset,
+  className,
+}: {
+  tier: PlaceTier
+  placesInTier: SavedPlace[]
+  state: TierReviewState
+  onChange: (patch: Partial<TierReviewState>) => void
+  onReset: () => void
+  className?: string
+}) {
+  const cities = citiesInPlaces(placesInTier)
+  const active = isTierReviewActive(state)
+  const selectClass =
+    'h-8 min-w-0 max-w-full rounded-lg border border-line bg-panel px-2 text-xs font-bold text-ink'
+
+  return (
+    <div
+      className={cn(
+        'flex min-w-0 flex-wrap items-end gap-2 rounded-xl border border-line/80 bg-panel/80 px-2 py-2',
+        active && 'border-honey/40 bg-honey-soft/40',
+        className,
+      )}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <label className="flex min-w-[7.5rem] flex-1 flex-col gap-0.5 sm:max-w-[11rem]">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-ink-soft">
+          Sort
+        </span>
+        <select
+          aria-label={`${TIER_META[tier].label} sort`}
+          className={selectClass}
+          value={state.sort}
+          onChange={(e) =>
+            onChange({ sort: e.target.value as TierReviewState['sort'] })
+          }
+        >
+          {TIER_BOARD_SORT_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex min-w-[6.5rem] flex-1 flex-col gap-0.5 sm:max-w-[10rem]">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-ink-soft">
+          City
+        </span>
+        <select
+          aria-label={`${TIER_META[tier].label} city filter`}
+          className={selectClass}
+          value={state.cityKey}
+          onChange={(e) => onChange({ cityKey: e.target.value })}
+          disabled={cities.length === 0}
+        >
+          <option value="">All cities</option>
+          {cities.map((city) => (
+            <option key={city.key} value={city.key}>
+              {city.label} ({city.count})
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex min-w-[6.5rem] flex-1 flex-col gap-0.5 sm:max-w-[10rem]">
+        <span className="text-[10px] font-bold uppercase tracking-wide text-ink-soft">
+          Sqft
+        </span>
+        <select
+          aria-label={`${TIER_META[tier].label} sqft filter`}
+          className={selectClass}
+          value={state.sqftFilter}
+          onChange={(e) => onChange({ sqftFilter: e.target.value })}
+        >
+          <option value="all">Any</option>
+          {PLACE_SQFT_FILTER_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {active ? (
+        <button
+          type="button"
+          className="mb-0.5 h-8 shrink-0 rounded-lg px-2 text-xs font-bold text-sea-deep hover:bg-folio"
+          onClick={onReset}
+        >
+          Your order
+        </button>
+      ) : null}
     </div>
   )
 }
