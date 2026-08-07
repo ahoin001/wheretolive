@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { SavedPlace } from '../types'
-import { movePlaceOnBoard, compareBoardOrder } from './boardOrder'
+import { movePlaceOnBoard, compareBoardOrder, relocateBoardItem, findBoardContainer } from './boardOrder'
 
 function place(
   partial: Partial<SavedPlace> & Pick<SavedPlace, 'id' | 'tier'>,
@@ -85,5 +85,62 @@ describe('compareBoardOrder', () => {
       'b',
       'a',
     ])
+  })
+})
+
+describe('relocateBoardItem', () => {
+  const items = {
+    dream: ['a', 'b'],
+    strong: ['c'],
+    maybe: [] as string[],
+    pass: [] as string[],
+  }
+
+  it('moves across tiers before the hovered item', () => {
+    expect(relocateBoardItem(items, 'c', 'a')).toEqual({
+      dream: ['c', 'a', 'b'],
+      strong: [],
+      maybe: [],
+      pass: [],
+    })
+  })
+
+  it('appends onto a tier drop target', () => {
+    expect(relocateBoardItem(items, 'a', 'tier:pass')).toEqual({
+      dream: ['b'],
+      strong: ['c'],
+      maybe: [],
+      pass: ['a'],
+    })
+  })
+
+  it('returns null for same-tier moves', () => {
+    expect(relocateBoardItem(items, 'a', 'b')).toBeNull()
+  })
+
+  it('is idempotent when active is already in the over container', () => {
+    const midDrag = {
+      dream: ['b'],
+      strong: ['c', 'a'],
+      maybe: [] as string[],
+      pass: [] as string[],
+    }
+    // active already in strong; over another strong item → same container
+    expect(relocateBoardItem(midDrag, 'a', 'c')).toBeNull()
+  })
+})
+
+describe('findBoardContainer', () => {
+  const items = {
+    dream: ['a'],
+    strong: [] as string[],
+    maybe: ['m'],
+    pass: [] as string[],
+  }
+
+  it('resolves place ids and tier drop ids', () => {
+    expect(findBoardContainer(items, 'a')).toBe('dream')
+    expect(findBoardContainer(items, 'tier:pass')).toBe('pass')
+    expect(findBoardContainer(items, 'missing')).toBeNull()
   })
 })

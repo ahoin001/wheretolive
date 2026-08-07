@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Check, ChevronRight, GripVertical } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react'
+import { Check, ChevronRight, ExternalLink, GripVertical } from 'lucide-react'
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,6 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
-  type UniqueIdentifier,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -25,9 +24,11 @@ import { AnimatePresence, motion as m } from 'motion/react'
 import type { PetsPolicy, PlaceTier, SavedPlace } from '../../domain/types'
 import { PLACE_SQFT_FILTER_OPTIONS } from '../../domain/types'
 import {
+  findBoardContainer,
   groupPlacesByTier,
-  isPlaceTier,
-  movePlaceOnBoard,
+  itemsByTierFromPlaces,
+  movePlaceToTier,
+  relocateBoardItem,
   type BoardPlacement,
 } from '../../domain/places/boardOrder'
 import {
@@ -43,6 +44,11 @@ import { motion } from '../../lib/motion'
 import { tweenPanel, easeSnappy } from '../../lib/motionPresets'
 import { cn } from '../../lib/utils'
 import { OpenableImage } from './ImageLightbox'
+import {
+  DesktopTierMover,
+  MobileTierMoveTrigger,
+  TierMoveSheet,
+} from './TierMoveControls'
 
 function emptyReviews(): Record<PlaceTier, TierReviewState> {
   return {
@@ -140,22 +146,57 @@ function CompactPets({ pets }: { pets: PetsPolicy }) {
   )
 }
 
-function tierDropId(tier: PlaceTier): string {
-  return `tier:${tier}`
+/** Opens the listing in a new tab without triggering card edit / drag. */
+function OpenListingControl({
+  url,
+  variant,
+}: {
+  url: string
+  variant: 'photo' | 'row'
+}) {
+  const href = url.trim()
+  if (!href) return null
+
+  const shared = {
+    href,
+    target: '_blank' as const,
+    rel: 'noreferrer',
+    onClick: (e: MouseEvent) => e.stopPropagation(),
+    onPointerDown: (e: PointerEvent) => e.stopPropagation(),
+  }
+
+  if (variant === 'photo') {
+    return (
+      <a
+        {...shared}
+        className={cn(
+          'absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line/80 bg-panel/95 text-ink shadow-sm',
+          motion.chip,
+        )}
+        aria-label="Open listing"
+        title="Open listing"
+      >
+        <ExternalLink className="h-4 w-4" aria-hidden />
+      </a>
+    )
+  }
+
+  return (
+    <a
+      {...shared}
+      className={cn(
+        'mt-2 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-sea/30 bg-sea/10 text-xs font-bold text-sea-deep',
+        motion.chip,
+      )}
+    >
+      <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+      Open listing
+    </a>
+  )
 }
 
-function findContainer(
-  items: Record<PlaceTier, string[]>,
-  id: UniqueIdentifier,
-): PlaceTier | null {
-  const sid = String(id)
-  if (sid.startsWith('tier:') && isPlaceTier(sid.slice(5))) {
-    return sid.slice(5) as PlaceTier
-  }
-  for (const tier of TIERS) {
-    if (items[tier].includes(sid)) return tier
-  }
-  return null
+function tierDropId(tier: PlaceTier): string {
+  return `tier:${tier}`
 }
 
 type TierBoardProps = {
@@ -182,25 +223,55 @@ export function TierBoard({
 }: TierBoardProps) {
   const byTier = useMemo(() => groupPlacesByTier(places), [places])
 
-  const [items, setItems] = useState<Record<PlaceTier, string[]>>(() => ({
-    dream: byTier.dream.map((p) => p.id),
-    strong: byTier.strong.map((p) => p.id),
-    maybe: byTier.maybe.map((p) => p.id),
-    pass: byTier.pass.map((p) => p.id),
-  }))
+  const [items, setItems] = useState<Record<PlaceTier, string[]>>(() =>
+    itemsByTierFromPlaces(places),
+  )
+  /** Always mirrors latest items — drag handlers must not read stale closures. */
+  const itemsRef = useRef(items)
+  itemsRef.current = items
 
   /** Per-tier temporary review — never written to boardOrder. */
   const [reviews, setReviews] =
     useState<Record<PlaceTier, TierReviewState>>(emptyReviews)
 
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined'
+      ? window.matchMedia('(min-width: 768px)').matches
+      : true,
+  )
+  const isDesktopRef = useRef(isDesktop)
+  isDesktopRef.current = isDesktop
+
   useEffect(() => {
-    setItems({
-      dream: byTier.dream.map((p) => p.id),
-      strong: byTier.strong.map((p) => p.id),
-      maybe: byTier.maybe.map((p) => p.id),
-      pass: byTier.pass.map((p) => p.id),
-    })
-  }, [byTier])
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => setIsDesktop(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const activeIdRef = useRef<string | null>(null)
+  activeIdRef.current = activeId
+
+  // Breakpoint flips remount the board layout — abort any in-flight drag cleanly.
+  useEffect(() => {
+    if (!activeIdRef.current) return
+    setActiveId(null)
+    const next = itemsByTierFromPlaces(places)
+    itemsRef.current = next
+    setItems(next)
+    // places intentionally omitted: only react to layout mode changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDesktop])
+
+  // Sync from props only when not mid-drag (avoids wiping live preview / double IDs).
+  useEffect(() => {
+    if (activeIdRef.current) return
+    const next = itemsByTierFromPlaces(places)
+    setItems(next)
+    itemsRef.current = next
+  }, [places])
 
   // Drop city filters that no longer exist in a tier’s places
   useEffect(() => {
@@ -260,9 +331,10 @@ export function TierBoard({
   )
 
   const [mobileTier, setMobileTier] = useState<PlaceTier>(firstPopulated)
-  const [activeId, setActiveId] = useState<string | null>(null)
+  const [movingPlaceId, setMovingPlaceId] = useState<string | null>(null)
 
   useEffect(() => {
+    if (activeIdRef.current) return
     if (byTier[mobileTier].length === 0 && places.length > 0) {
       setMobileTier(firstPopulated)
     }
@@ -276,6 +348,22 @@ export function TierBoard({
   )
 
   const activePlace = activeId ? placeById.get(activeId) ?? null : null
+  const movingPlace = movingPlaceId
+    ? placeById.get(movingPlaceId) ?? null
+    : null
+
+  const resetItemsFromPlaces = () => {
+    const next = itemsByTierFromPlaces(places)
+    itemsRef.current = next
+    setItems(next)
+  }
+
+  const commitMoveToTier = (placeId: string, tier: PlaceTier) => {
+    const placements = movePlaceToTier(places, placeId, tier)
+    if (placements) onReorder(placements)
+    setMovingPlaceId(null)
+    if (placements) setMobileTier(tier)
+  }
 
   const commitFromItems = (next: Record<PlaceTier, string[]>) => {
     const placements: BoardPlacement[] = []
@@ -284,7 +372,6 @@ export function TierBoard({
         placements.push({ id, tier, boardOrder })
       })
     }
-    // Only emit placements that actually changed
     const changed = placements.filter((p) => {
       const cur = placeById.get(p.id)
       if (!cur) return false
@@ -298,99 +385,80 @@ export function TierBoard({
   }
 
   const onDragOver = (event: DragOverEvent) => {
+    // Mobile shows one tier at a time. Live-relocating would unmount the
+    // drag source before drop — keep preview local and commit on drag end.
+    if (!isDesktopRef.current) return
+
     const { active, over } = event
     if (!over) return
-    const activeContainer = findContainer(items, active.id)
-    const overContainer = findContainer(items, over.id)
-    if (!activeContainer || !overContainer || activeContainer === overContainer) {
-      return
-    }
 
-    setMobileTier(overContainer)
+    const activeIdStr = String(active.id)
+    const overIdStr = String(over.id)
 
+    // Functional update + ref so rapid cross-tier events never use stale lists.
     setItems((prev) => {
-      const activeItems = [...prev[activeContainer]]
-      const overItems = [...prev[overContainer]]
-      const activeIndex = activeItems.indexOf(String(active.id))
-      if (activeIndex < 0) return prev
-      activeItems.splice(activeIndex, 1)
-
-      let newIndex: number
-      if (String(over.id).startsWith('tier:')) {
-        newIndex = overItems.length
-      } else {
-        const overIndex = overItems.indexOf(String(over.id))
-        newIndex = overIndex >= 0 ? overIndex : overItems.length
-      }
-      overItems.splice(newIndex, 0, String(active.id))
-
-      return {
-        ...prev,
-        [activeContainer]: activeItems,
-        [overContainer]: overItems,
-      }
+      const relocated = relocateBoardItem(prev, activeIdStr, overIdStr)
+      if (!relocated) return prev
+      itemsRef.current = relocated
+      return relocated
     })
   }
 
   const onDragEnd = (event: DragEndEvent) => {
     const { active, over } = event
+    const current = itemsRef.current
     setActiveId(null)
+
     if (!over) {
-      // Reset from props if cancelled mid-flight oddly
-      setItems({
-        dream: byTier.dream.map((p) => p.id),
-        strong: byTier.strong.map((p) => p.id),
-        maybe: byTier.maybe.map((p) => p.id),
-        pass: byTier.pass.map((p) => p.id),
-      })
+      resetItemsFromPlaces()
       return
     }
 
-    const activeContainer = findContainer(items, active.id)
-    const overContainer = findContainer(items, over.id)
-    if (!activeContainer || !overContainer) return
+    const activeIdStr = String(active.id)
+    const overIdStr = String(over.id)
+    const activeContainer = findBoardContainer(current, activeIdStr)
+    const overContainer = findBoardContainer(current, overIdStr)
+
+    if (!activeContainer || !overContainer) {
+      resetItemsFromPlaces()
+      return
+    }
+
+    let next = current
 
     if (activeContainer === overContainer) {
-      const list = items[activeContainer]
-      const oldIndex = list.indexOf(String(active.id))
-      const newIndex = String(over.id).startsWith('tier:')
+      const list = current[activeContainer]
+      const oldIndex = list.indexOf(activeIdStr)
+      const newIndex = overIdStr.startsWith('tier:')
         ? list.length - 1
-        : list.indexOf(String(over.id))
-      if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) {
-        commitFromItems(items)
-        return
+        : list.indexOf(overIdStr)
+      if (oldIndex >= 0 && newIndex >= 0 && oldIndex !== newIndex) {
+        next = {
+          ...current,
+          [activeContainer]: arrayMove(list, oldIndex, newIndex),
+        }
+        itemsRef.current = next
+        setItems(next)
       }
-      const nextList = arrayMove(list, oldIndex, newIndex)
-      const next = { ...items, [activeContainer]: nextList }
-      setItems(next)
-      commitFromItems(next)
-      return
+    } else {
+      // Cross-tier preview may have missed the final over target — apply once more.
+      const relocated = relocateBoardItem(current, activeIdStr, overIdStr)
+      if (relocated) {
+        next = relocated
+        itemsRef.current = next
+        setItems(next)
+      }
     }
 
-    // Cross-container already reflected in items via onDragOver
-    commitFromItems(items)
+    const destTier = findBoardContainer(next, activeIdStr)
+    if (destTier) setMobileTier(destTier)
+
+    commitFromItems(next)
   }
 
   const onDragCancel = () => {
     setActiveId(null)
-    setItems({
-      dream: byTier.dream.map((p) => p.id),
-      strong: byTier.strong.map((p) => p.id),
-      maybe: byTier.maybe.map((p) => p.id),
-      pass: byTier.pass.map((p) => p.id),
-    })
-  }
-
-  /** Mobile: quick move when dropping onto a tier chip while dragging. */
-  const moveActiveToMobileTier = (tier: PlaceTier) => {
-    if (!activeId || !canDrag) {
-      setMobileTier(tier)
-      return
-    }
-    const placements = movePlaceOnBoard(places, activeId, tierDropId(tier))
-    if (placements) onReorder(placements)
-    setMobileTier(tier)
-    setActiveId(null)
+    resetItemsFromPlaces()
   }
 
   const mobileBoardIds = items[mobileTier]
@@ -417,13 +485,12 @@ export function TierBoard({
         </div>
       ) : !reorderEnabled && !selectMode ? (
         <p className="text-xs text-ink-soft md:text-sm">
-          Clear list filters to drag places between tiers or reorder left to
-          right.
+          Clear list filters to rearrange the Tier List.
         </p>
       ) : canDrag ? (
         <p className="hidden text-xs text-ink-soft md:block">
-          Drag places left to right within a tier, or up and down across tiers.
-          Use each tier’s sort to temporarily review by price, sqft, or city.
+          Promote or demote with the buttons on each place, click a tier chip to
+          jump, or drag to rearrange left to right.
         </p>
       ) : null}
 
@@ -435,239 +502,271 @@ export function TierBoard({
         onDragEnd={canDrag ? onDragEnd : undefined}
         onDragCancel={canDrag ? onDragCancel : undefined}
       >
-        {/* ——— Mobile: focused tier + droppable chips ——— */}
-        <div className="md:hidden">
-          <div className="sticky top-0 z-20 -mx-1 mb-3 bg-mist/90 px-1 py-2 backdrop-blur-md">
-            <div
-              role="tablist"
-              aria-label="Place tiers"
-              className="grid grid-cols-4 gap-1.5"
-            >
-              {TIERS.map((tier) => {
-                const count = items[tier].length
-                const active = mobileTier === tier
-                const meta = TIER_META[tier]
-                return (
-                  <MobileTierChip
-                    key={tier}
-                    tier={tier}
-                    active={active}
-                    count={count}
-                    meta={meta}
-                    droppable={canDrag}
-                    onSelect={() => moveActiveToMobileTier(tier)}
-                  />
-                )
-              })}
-            </div>
-            {canDrag ? (
-              <p className="mt-1.5 text-center text-[11px] text-ink-soft">
-                Press and hold a place, then drag — drop on a tier chip to move
-                it.
-              </p>
-            ) : null}
-          </div>
-
-          <AnimatePresence mode="wait" initial={false}>
-            <m.div
-              key={mobileTier}
-              role="tabpanel"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0, transition: tweenPanel }}
-              exit={{
-                opacity: 0,
-                y: -4,
-                transition: { duration: 0.14, ease: easeSnappy },
-              }}
-            >
-              <div className="mb-2.5 flex items-baseline justify-between gap-2 px-0.5">
-                <h3 className="font-display text-lg font-semibold text-ink">
-                  {TIER_META[mobileTier].label}
-                </h3>
-                <span className="text-xs font-bold text-ink-soft">
-                  {mobileBoardIds.length === 0
-                    ? 'Empty'
-                    : mobileReviewOn
-                      ? `${mobilePlaces.length} of ${mobileBoardIds.length}`
-                      : `${mobilePlaces.length} ${
-                          mobilePlaces.length === 1 ? 'place' : 'places'
-                        }`}
-                </span>
-              </div>
-
-              {mobileBoardIds.length > 0 ? (
-                <TierReviewBar
-                  tier={mobileTier}
-                  placesInTier={byTier[mobileTier]}
-                  state={mobileReview}
-                  onChange={(patch) => patchReview(mobileTier, patch)}
-                  onReset={() => resetReview(mobileTier)}
-                  className="mb-2.5"
-                />
-              ) : null}
-
+        {/*
+          Mount only one layout. CSS-hiding both registered the same sortable
+          and droppable IDs twice — measuring the hidden node put the overlay
+          at the top of the viewport and broke later drags.
+        */}
+        {!isDesktop ? (
+          <div>
+            <div className="sticky top-0 z-20 -mx-1 mb-3 bg-mist/90 px-1 py-2 backdrop-blur-md">
               <div
-                className={cn(
-                  mobilePlaces.length === 0 &&
-                    'rounded-2xl border border-dashed border-line bg-folio/50 px-4 py-10 text-center',
-                )}
+                role="tablist"
+                aria-label="Place tiers"
+                className="grid grid-cols-4 gap-1.5"
               >
-                {mobileBoardIds.length === 0 ? (
-                  <p className="text-sm font-bold text-ink-soft">
-                    {TIER_META[mobileTier].emptyHint}
-                  </p>
-                ) : mobilePlaces.length === 0 ? (
-                  <p className="text-sm font-bold text-ink-soft">
-                    No places match this tier’s temporary filters.
-                  </p>
-                ) : (
+                {TIERS.map((tier) => {
+                  const count = items[tier].length
+                  const active = mobileTier === tier
+                  const meta = TIER_META[tier]
+                  return (
+                    <MobileTierChip
+                      key={tier}
+                      tier={tier}
+                      active={active}
+                      count={count}
+                      meta={meta}
+                      droppable={canDrag}
+                      onSelect={() => {
+                        // Never commit while dragging — droppable + onDragEnd own that.
+                        if (activeIdRef.current) return
+                        setMobileTier(tier)
+                      }}
+                    />
+                  )
+                })}
+              </div>
+              {reorderEnabled && !selectMode ? (
+                <p className="mt-1.5 text-center text-[11px] text-ink-soft">
+                  Tap <span className="font-bold text-ink">Change tier</span> on a
+                  place — or press and hold to drag onto a tier chip.
+                </p>
+              ) : null}
+            </div>
+
+            <AnimatePresence mode="wait" initial={false}>
+              <m.div
+                key={mobileTier}
+                role="tabpanel"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0, transition: tweenPanel }}
+                exit={{
+                  opacity: 0,
+                  y: -4,
+                  transition: { duration: 0.14, ease: easeSnappy },
+                }}
+              >
+                <div className="mb-2.5 flex items-baseline justify-between gap-2 px-0.5">
+                  <h3 className="font-display text-lg font-semibold text-ink">
+                    {TIER_META[mobileTier].label}
+                  </h3>
+                  <span className="text-xs font-bold text-ink-soft">
+                    {mobileBoardIds.length === 0
+                      ? 'Empty'
+                      : mobileReviewOn
+                        ? `${mobilePlaces.length} of ${mobileBoardIds.length}`
+                        : `${mobilePlaces.length} ${
+                            mobilePlaces.length === 1 ? 'place' : 'places'
+                          }`}
+                  </span>
+                </div>
+
+                {mobileBoardIds.length > 0 ? (
+                  <TierReviewBar
+                    tier={mobileTier}
+                    placesInTier={byTier[mobileTier]}
+                    state={mobileReview}
+                    onChange={(patch) => patchReview(mobileTier, patch)}
+                    onReset={() => resetReview(mobileTier)}
+                    className="mb-2.5"
+                  />
+                ) : null}
+
+                <div
+                  className={cn(
+                    mobilePlaces.length === 0 &&
+                      'rounded-2xl border border-dashed border-line bg-folio/50 px-4 py-10 text-center',
+                  )}
+                >
                   <SortableContext
                     items={mobileDisplayIds}
                     strategy={rectSortingStrategy}
                     disabled={!canDrag}
                   >
-                    <ul
-                      className={cn(
-                        mobilePlaces.length <= 2
-                          ? 'space-y-2.5'
-                          : 'grid grid-cols-2 gap-2.5',
-                      )}
-                    >
-                      {mobilePlaces.map((place) => (
-                        <li key={place.id} className="min-w-0">
-                          {mobilePlaces.length <= 2 ? (
-                            <SortableMobileRow
-                              place={place}
-                              selected={selectedIds.includes(place.id)}
-                              selectMode={selectMode}
-                              canDrag={canDrag}
-                              onToggleSelect={() => onToggleSelect(place.id)}
-                              onEdit={() => onEdit(place)}
-                              onOpenLightbox={onOpenLightbox}
-                            />
-                          ) : (
-                            <SortableBoardTile
-                              place={place}
-                              selected={selectedIds.includes(place.id)}
-                              selectMode={selectMode}
-                              density="mobile"
-                              canDrag={canDrag}
-                              onActivate={() =>
-                                selectMode
-                                  ? onToggleSelect(place.id)
-                                  : onEdit(place)
-                              }
-                              onOpenLightbox={onOpenLightbox}
-                            />
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </SortableContext>
-                )}
-              </div>
-            </m.div>
-          </AnimatePresence>
-        </div>
-
-        {/* ——— Desktop: classic wrapping board ——— */}
-        <div className="hidden min-w-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-soft)] md:block">
-          {TIERS.map((tier, index) => {
-            const ids = items[tier]
-            const boardPlacesInTier = ids
-              .map((id) => placeById.get(id))
-              .filter((p): p is SavedPlace => Boolean(p))
-            const placesInTier = applyTierReview(boardPlacesInTier, reviews[tier])
-            const displayIds = placesInTier.map((p) => p.id)
-            const reviewOn = isTierReviewActive(reviews[tier])
-            const empty = boardPlacesInTier.length === 0
-            const filteredEmpty = !empty && placesInTier.length === 0
-            const meta = TIER_META[tier]
-            return (
-              <section
-                key={tier}
-                className={cn(
-                  'grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] lg:grid-cols-[7rem_minmax(0,1fr)]',
-                  index > 0 && 'border-t border-line',
-                )}
-                aria-label={`${meta.label}: ${placesInTier.length} places`}
-              >
-                <div
-                  className={cn(
-                    'flex min-w-0 flex-col items-center justify-center gap-1 px-1.5 py-4 text-center lg:px-2',
-                    meta.rail,
-                    empty && 'py-3 opacity-70',
-                  )}
-                >
-                  <p className="font-display text-sm font-semibold leading-tight tracking-[-0.02em] lg:text-lg">
-                    {meta.short}
-                  </p>
-                  <p className="text-[11px] font-bold tabular-nums opacity-80">
-                    {empty
-                      ? '—'
-                      : reviewOn
-                        ? `${placesInTier.length}/${boardPlacesInTier.length}`
-                        : placesInTier.length}
-                  </p>
-                </div>
-
-                <TierDropZone
-                  tier={tier}
-                  empty={empty}
-                  className={cn(
-                    'min-w-0 overflow-hidden bg-mist/40',
-                    empty ? 'min-h-[4.5rem] px-4 py-3' : 'p-3 lg:p-3.5',
-                  )}
-                >
-                  {empty ? (
-                    <p className="text-sm text-ink-soft">{meta.emptyHint}</p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      <TierReviewBar
-                        tier={tier}
-                        placesInTier={byTier[tier]}
-                        state={reviews[tier]}
-                        onChange={(patch) => patchReview(tier, patch)}
-                        onReset={() => resetReview(tier)}
-                      />
-                      {filteredEmpty ? (
-                        <p className="text-sm text-ink-soft">
-                          No places match this temporary review.
+                    {mobileBoardIds.length === 0 ? (
+                      <TierDropZone
+                        tier={mobileTier}
+                        empty
+                        className="min-h-[4.5rem] py-6"
+                      >
+                        <p className="text-sm font-bold text-ink-soft">
+                          {TIER_META[mobileTier].emptyHint}
                         </p>
-                      ) : (
-                        <SortableContext
-                          items={displayIds}
-                          strategy={rectSortingStrategy}
-                          disabled={!canDrag}
-                        >
-                          <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,10.5rem),1fr))] gap-2.5">
-                            {placesInTier.map((place) => (
-                              <li key={place.id} className="min-w-0">
-                                <SortableBoardTile
-                                  place={place}
-                                  selected={selectedIds.includes(place.id)}
-                                  selectMode={selectMode}
-                                  density="desktop"
-                                  canDrag={canDrag}
-                                  onActivate={() =>
-                                    selectMode
-                                      ? onToggleSelect(place.id)
-                                      : onEdit(place)
-                                  }
-                                  onOpenLightbox={onOpenLightbox}
-                                />
-                              </li>
-                            ))}
-                          </ul>
-                        </SortableContext>
-                      )}
-                    </div>
+                      </TierDropZone>
+                    ) : mobilePlaces.length === 0 ? (
+                      <p className="text-sm font-bold text-ink-soft">
+                        No places match this tier’s temporary filters.
+                      </p>
+                    ) : (
+                      <ul
+                        className={cn(
+                          mobilePlaces.length <= 2
+                            ? 'space-y-2.5'
+                            : 'grid grid-cols-2 gap-2.5',
+                        )}
+                      >
+                        {mobilePlaces.map((place) => (
+                          <li key={place.id} className="min-w-0">
+                            {mobilePlaces.length <= 2 ? (
+                              <SortableMobileRow
+                                place={place}
+                                selected={selectedIds.includes(place.id)}
+                                selectMode={selectMode}
+                                canDrag={canDrag}
+                                canMoveTier={reorderEnabled && !selectMode}
+                                onToggleSelect={() => onToggleSelect(place.id)}
+                                onEdit={() => onEdit(place)}
+                                onOpenLightbox={onOpenLightbox}
+                                onRequestMoveTier={() =>
+                                  setMovingPlaceId(place.id)
+                                }
+                              />
+                            ) : (
+                              <SortableBoardTile
+                                place={place}
+                                selected={selectedIds.includes(place.id)}
+                                selectMode={selectMode}
+                                density="mobile"
+                                canDrag={canDrag}
+                                canMoveTier={reorderEnabled && !selectMode}
+                                onActivate={() =>
+                                  selectMode
+                                    ? onToggleSelect(place.id)
+                                    : onEdit(place)
+                                }
+                                onOpenLightbox={onOpenLightbox}
+                                onRequestMoveTier={() =>
+                                  setMovingPlaceId(place.id)
+                                }
+                              />
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </SortableContext>
+                </div>
+              </m.div>
+            </AnimatePresence>
+          </div>
+        ) : (
+          <div className="min-w-0 overflow-hidden rounded-2xl border border-line bg-panel shadow-[var(--shadow-soft)]">
+            {TIERS.map((tier, index) => {
+              const ids = items[tier]
+              const boardPlacesInTier = ids
+                .map((id) => placeById.get(id))
+                .filter((p): p is SavedPlace => Boolean(p))
+              const placesInTier = applyTierReview(
+                boardPlacesInTier,
+                reviews[tier],
+              )
+              const displayIds = placesInTier.map((p) => p.id)
+              const reviewOn = isTierReviewActive(reviews[tier])
+              const empty = boardPlacesInTier.length === 0
+              const filteredEmpty = !empty && placesInTier.length === 0
+              const meta = TIER_META[tier]
+              return (
+                <section
+                  key={tier}
+                  className={cn(
+                    'grid min-w-0 grid-cols-[5.5rem_minmax(0,1fr)] lg:grid-cols-[7rem_minmax(0,1fr)]',
+                    index > 0 && 'border-t border-line',
                   )}
-                </TierDropZone>
-              </section>
-            )
-          })}
-        </div>
+                  aria-label={`${meta.label}: ${placesInTier.length} places`}
+                >
+                  <div
+                    className={cn(
+                      'flex min-w-0 flex-col items-center justify-center gap-1 px-1.5 py-4 text-center lg:px-2',
+                      meta.rail,
+                      empty && 'py-3 opacity-70',
+                    )}
+                  >
+                    <p className="font-display text-sm font-semibold leading-tight tracking-[-0.02em] lg:text-lg">
+                      {meta.short}
+                    </p>
+                    <p className="text-[11px] font-bold tabular-nums opacity-80">
+                      {empty
+                        ? '—'
+                        : reviewOn
+                          ? `${placesInTier.length}/${boardPlacesInTier.length}`
+                          : placesInTier.length}
+                    </p>
+                  </div>
+
+                  <TierDropZone
+                    tier={tier}
+                    empty={empty}
+                    className={cn(
+                      'min-w-0 overflow-hidden bg-mist/40',
+                      empty ? 'min-h-[4.5rem] px-4 py-3' : 'p-3 lg:p-3.5',
+                    )}
+                  >
+                    <SortableContext
+                      items={displayIds}
+                      strategy={rectSortingStrategy}
+                      disabled={!canDrag}
+                    >
+                      {empty ? (
+                        <p className="text-sm text-ink-soft">{meta.emptyHint}</p>
+                      ) : (
+                        <div className="space-y-2.5">
+                          <TierReviewBar
+                            tier={tier}
+                            placesInTier={byTier[tier]}
+                            state={reviews[tier]}
+                            onChange={(patch) => patchReview(tier, patch)}
+                            onReset={() => resetReview(tier)}
+                          />
+                          {filteredEmpty ? (
+                            <p className="text-sm text-ink-soft">
+                              No places match this temporary review.
+                            </p>
+                          ) : (
+                            <ul className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,10.5rem),1fr))] gap-2.5">
+                              {placesInTier.map((place) => (
+                                <li key={place.id} className="min-w-0">
+                                  <SortableBoardTile
+                                    place={place}
+                                    selected={selectedIds.includes(place.id)}
+                                    selectMode={selectMode}
+                                    density="desktop"
+                                    canDrag={canDrag}
+                                    canMoveTier={
+                                      reorderEnabled && !selectMode
+                                    }
+                                    onActivate={() =>
+                                      selectMode
+                                        ? onToggleSelect(place.id)
+                                        : onEdit(place)
+                                    }
+                                    onOpenLightbox={onOpenLightbox}
+                                    onMoveTier={(nextTier) =>
+                                      commitMoveToTier(place.id, nextTier)
+                                    }
+                                  />
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                    </SortableContext>
+                  </TierDropZone>
+                </section>
+              )
+            })}
+          </div>
+        )}
 
         <DragOverlay dropAnimation={null}>
           {activePlace ? (
@@ -685,6 +784,15 @@ export function TierBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      <TierMoveSheet
+        open={Boolean(movingPlace)}
+        place={movingPlace}
+        onClose={() => setMovingPlaceId(null)}
+        onPick={(tier) => {
+          if (movingPlace) commitMoveToTier(movingPlace.id, tier)
+        }}
+      />
     </div>
   )
 }
@@ -868,16 +976,22 @@ function SortableBoardTile({
   selectMode,
   density,
   canDrag,
+  canMoveTier,
   onActivate,
   onOpenLightbox,
+  onMoveTier,
+  onRequestMoveTier,
 }: {
   place: SavedPlace
   selected: boolean
   selectMode: boolean
   density: 'mobile' | 'desktop'
   canDrag: boolean
+  canMoveTier: boolean
   onActivate: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
+  onMoveTier?: (tier: PlaceTier) => void
+  onRequestMoveTier?: () => void
 }) {
   const {
     attributes,
@@ -886,10 +1000,14 @@ function SortableBoardTile({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: place.id, disabled: !canDrag })
+  } = useSortable({
+    id: place.id,
+    disabled: !canDrag,
+    animateLayoutChanges: () => false,
+  })
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition,
   }
 
@@ -915,8 +1033,11 @@ function SortableBoardTile({
         selected={selected}
         selectMode={selectMode}
         density={density}
+        canMoveTier={canMoveTier}
         onActivate={onActivate}
         onOpenLightbox={onOpenLightbox}
+        onMoveTier={onMoveTier}
+        onRequestMoveTier={onRequestMoveTier}
       />
     </div>
   )
@@ -927,17 +1048,21 @@ function SortableMobileRow({
   selected,
   selectMode,
   canDrag,
+  canMoveTier,
   onToggleSelect,
   onEdit,
   onOpenLightbox,
+  onRequestMoveTier,
 }: {
   place: SavedPlace
   selected: boolean
   selectMode: boolean
   canDrag: boolean
+  canMoveTier: boolean
   onToggleSelect: () => void
   onEdit: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
+  onRequestMoveTier: () => void
 }) {
   const {
     attributes,
@@ -946,10 +1071,14 @@ function SortableMobileRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: place.id, disabled: !canDrag })
+  } = useSortable({
+    id: place.id,
+    disabled: !canDrag,
+    animateLayoutChanges: () => false,
+  })
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition,
   }
 
@@ -974,9 +1103,11 @@ function SortableMobileRow({
         place={place}
         selected={selected}
         selectMode={selectMode}
+        canMoveTier={canMoveTier}
         onToggleSelect={onToggleSelect}
         onEdit={onEdit}
         onOpenLightbox={onOpenLightbox}
+        onRequestMoveTier={onRequestMoveTier}
       />
     </div>
   )
@@ -988,19 +1119,39 @@ function BoardTile({
   selectMode,
   density,
   dragging = false,
+  canMoveTier = false,
   onActivate,
   onOpenLightbox,
+  onMoveTier,
+  onRequestMoveTier,
 }: {
   place: SavedPlace
   selected: boolean
   selectMode: boolean
   density: 'mobile' | 'desktop'
   dragging?: boolean
+  canMoveTier?: boolean
   onActivate: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
+  onMoveTier?: (tier: PlaceTier) => void
+  onRequestMoveTier?: () => void
 }) {
   const images = placeImages(place)
   const title = place.title || 'Untitled'
+  const listingUrl = place.url?.trim() || ''
+  const showListing = Boolean(listingUrl) && !selectMode && !dragging
+  const showDesktopMover =
+    density === 'desktop' &&
+    canMoveTier &&
+    !selectMode &&
+    !dragging &&
+    onMoveTier
+  const showMobileMover =
+    density === 'mobile' &&
+    canMoveTier &&
+    !selectMode &&
+    !dragging &&
+    onRequestMoveTier
 
   return (
     <article
@@ -1051,44 +1202,63 @@ function BoardTile({
             No photo
           </div>
         )}
+        {showListing ? (
+          <OpenListingControl url={listingUrl} variant="photo" />
+        ) : null}
       </div>
 
-      <button
-        type="button"
-        onClick={onActivate}
+      <div
         className={cn(
-          'w-full text-left',
-          motion.press,
           density === 'mobile' ? 'px-2.5 py-2' : 'px-3 py-2.5',
         )}
       >
-        <p
-          className={cn(
-            'font-bold leading-snug text-ink',
-            density === 'mobile'
-              ? 'line-clamp-2 text-[0.8rem]'
-              : 'line-clamp-2 text-sm',
-          )}
+        <button
+          type="button"
+          onClick={onActivate}
+          className={cn('w-full text-left', motion.press)}
         >
-          {title}
-        </p>
-        <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-ink-soft">
-          <span className="font-semibold text-ink">
-            {primaryCostLabel(place)}
-          </span>
-          <CompactPets pets={place.pets ?? 'no'} />
-        </p>
-        {density === 'desktop' ? (
-          <span className="mt-1.5 inline-flex items-center gap-0.5 text-[11px] font-bold text-sea-deep">
-            {selectMode
-              ? selected
-                ? 'Selected'
-                : 'Select'
-              : 'Edit details'}
-            <ChevronRight className="h-3 w-3" aria-hidden />
-          </span>
+          <p
+            className={cn(
+              'font-bold leading-snug text-ink',
+              density === 'mobile'
+                ? 'line-clamp-2 text-[0.8rem]'
+                : 'line-clamp-2 text-sm',
+            )}
+          >
+            {title}
+          </p>
+          <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-ink-soft">
+            <span className="font-semibold text-ink">
+              {primaryCostLabel(place)}
+            </span>
+            <CompactPets pets={place.pets ?? 'no'} />
+          </p>
+          {density === 'desktop' ? (
+            <span className="mt-1.5 inline-flex items-center gap-0.5 text-[11px] font-bold text-sea-deep">
+              {selectMode
+                ? selected
+                  ? 'Selected'
+                  : 'Select'
+                : 'Edit details'}
+              <ChevronRight className="h-3 w-3" aria-hidden />
+            </span>
+          ) : null}
+        </button>
+
+        {showDesktopMover ? (
+          <DesktopTierMover
+            current={place.tier}
+            onMove={onMoveTier}
+            disabled={!canMoveTier}
+          />
         ) : null}
-      </button>
+        {showMobileMover ? (
+          <MobileTierMoveTrigger
+            onOpen={onRequestMoveTier}
+            disabled={!canMoveTier}
+          />
+        ) : null}
+      </div>
     </article>
   )
 }
@@ -1097,19 +1267,25 @@ function MobileRowCard({
   place,
   selected,
   selectMode,
+  canMoveTier,
   onToggleSelect,
   onEdit,
   onOpenLightbox,
+  onRequestMoveTier,
 }: {
   place: SavedPlace
   selected: boolean
   selectMode: boolean
+  canMoveTier: boolean
   onToggleSelect: () => void
   onEdit: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
+  onRequestMoveTier: () => void
 }) {
   const images = placeImages(place)
   const title = place.title || 'Untitled'
+  const listingUrl = place.url?.trim() || ''
+  const showListing = Boolean(listingUrl) && !selectMode
 
   return (
     <div
@@ -1138,30 +1314,41 @@ function MobileRowCard({
               No photo
             </div>
           )}
+          {showListing ? (
+            <OpenListingControl url={listingUrl} variant="photo" />
+          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => (selectMode ? onToggleSelect() : onEdit())}
-          className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 px-3 py-3 text-left"
-        >
-          <p className="line-clamp-2 text-[0.95rem] font-bold leading-snug text-ink">
-            {title}
-          </p>
-          <p className="flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
-            <span className="font-semibold text-ink">
-              {primaryCostLabel(place)}
+        <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-3">
+          <button
+            type="button"
+            onClick={() => (selectMode ? onToggleSelect() : onEdit())}
+            className="w-full text-left"
+          >
+            <p className="line-clamp-2 text-[0.95rem] font-bold leading-snug text-ink">
+              {title}
+            </p>
+            <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
+              <span className="font-semibold text-ink">
+                {primaryCostLabel(place)}
+              </span>
+              <CompactPets pets={place.pets ?? 'no'} />
+            </p>
+            <span className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-bold text-sea-deep">
+              {selectMode
+                ? selected
+                  ? 'Selected'
+                  : 'Tap to select'
+                : 'Edit details'}
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
             </span>
-            <CompactPets pets={place.pets ?? 'no'} />
-          </p>
-          <span className="mt-0.5 inline-flex items-center gap-0.5 text-xs font-bold text-sea-deep">
-            {selectMode
-              ? selected
-                ? 'Selected'
-                : 'Tap to select'
-              : 'Edit details'}
-            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-          </span>
-        </button>
+          </button>
+          {showListing ? (
+            <OpenListingControl url={listingUrl} variant="row" />
+          ) : null}
+          {canMoveTier && !selectMode ? (
+            <MobileTierMoveTrigger onOpen={onRequestMoveTier} />
+          ) : null}
+        </div>
       </div>
     </div>
   )

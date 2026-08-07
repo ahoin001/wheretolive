@@ -41,6 +41,73 @@ export function groupPlacesByTier(
   return map
 }
 
+/** Id lists per tier for sortable board state. */
+export function itemsByTierFromPlaces(
+  places: SavedPlace[],
+): Record<PlaceTier, string[]> {
+  const byTier = groupPlacesByTier(places)
+  return {
+    dream: byTier.dream.map((p) => p.id),
+    strong: byTier.strong.map((p) => p.id),
+    maybe: byTier.maybe.map((p) => p.id),
+    pass: byTier.pass.map((p) => p.id),
+  }
+}
+
+export function findBoardContainer(
+  items: Record<PlaceTier, string[]>,
+  id: string,
+): PlaceTier | null {
+  if (id.startsWith('tier:') && isPlaceTier(id.slice(5))) {
+    return id.slice(5) as PlaceTier
+  }
+  for (const tier of TIERS) {
+    if (items[tier].includes(id)) return tier
+  }
+  return null
+}
+
+/**
+ * Live preview relocate for multi-container drag.
+ * Same-container returns null (use arrayMove on drop instead).
+ */
+export function relocateBoardItem(
+  items: Record<PlaceTier, string[]>,
+  activeId: string,
+  overId: string,
+): Record<PlaceTier, string[]> | null {
+  if (activeId === overId) return null
+
+  const activeContainer = findBoardContainer(items, activeId)
+  const overContainer = findBoardContainer(items, overId)
+  if (!activeContainer || !overContainer) return null
+  if (activeContainer === overContainer) return null
+
+  const activeItems = [...items[activeContainer]]
+  const overItems = [...items[overContainer]]
+  const activeIndex = activeItems.indexOf(activeId)
+  if (activeIndex < 0) return null
+
+  activeItems.splice(activeIndex, 1)
+
+  let newIndex: number
+  if (overId.startsWith('tier:')) {
+    newIndex = overItems.length
+  } else {
+    const overIndex = overItems.indexOf(overId)
+    // Insert before the hovered item (after removal from source).
+    newIndex = overIndex >= 0 ? overIndex : overItems.length
+  }
+
+  overItems.splice(newIndex, 0, activeId)
+
+  return {
+    ...items,
+    [activeContainer]: activeItems,
+    [overContainer]: overItems,
+  }
+}
+
 function placementsForTier(
   byTier: Record<PlaceTier, SavedPlace[]>,
   tiers: PlaceTier[],
@@ -122,4 +189,19 @@ export function movePlaceOnBoard(
   next[destTier].splice(destIndex, 0, { ...moving, tier: destTier })
 
   return placementsForTier(next, [...new Set([sourceTier, destTier])])
+}
+
+/**
+ * Move `placeId` to `destTier` (appended at the end of that tier).
+ * Returns placements for affected tiers, or null if unchanged / missing.
+ */
+export function movePlaceToTier(
+  places: SavedPlace[],
+  placeId: string,
+  destTier: PlaceTier,
+): BoardPlacement[] | null {
+  const place = places.find((p) => p.id === placeId)
+  if (!place) return null
+  if (place.tier === destTier) return null
+  return movePlaceOnBoard(places, placeId, `tier:${destTier}`)
 }

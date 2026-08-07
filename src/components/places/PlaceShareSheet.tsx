@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Check, Copy, Link2, Share2 } from 'lucide-react'
-import { createPlaceShareLink } from '../../data/collaboration/api'
+import {
+  createPlaceShareLink,
+  ShareLinkError,
+  type ShareLinkDebug,
+} from '../../data/collaboration/api'
 import { absoluteShareUrl } from '../../data/collaboration/share'
 import type { SavedPlace } from '../../domain/types'
 import { isSupabaseConfigured } from '../../lib/supabase'
@@ -42,6 +46,8 @@ export function PlaceShareSheet({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [debug, setDebug] = useState<ShareLinkDebug | null>(null)
+  const [debugCopied, setDebugCopied] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -57,6 +63,8 @@ export function PlaceShareSheet({
     if (!open) {
       setBusy(false)
       setError(null)
+      setDebug(null)
+      setDebugCopied(false)
       setUrl(null)
       setCopied(false)
     }
@@ -70,10 +78,13 @@ export function PlaceShareSheet({
     async function create() {
       if (!isSupabaseConfigured) {
         setError('Cloud sharing needs Supabase configured.')
+        setDebug(null)
         return
       }
       setBusy(true)
       setError(null)
+      setDebug(null)
+      setDebugCopied(false)
       setUrl(null)
       try {
         const created = await createPlaceShareLink({
@@ -89,11 +100,19 @@ export function PlaceShareSheet({
         if (!cancelled && ok) setCopied(true)
       } catch (e) {
         if (cancelled) return
-        setError(
-          e instanceof Error
-            ? e.message
-            : 'Could not create a share link. Try again.',
-        )
+        if (e instanceof ShareLinkError) {
+          setError(e.userMessage)
+          setDebug(e.debug)
+          console.error('[place-share]', e.userMessage, e.debug)
+        } else {
+          setError(
+            e instanceof Error
+              ? e.message
+              : 'Could not create a share link. Try again.',
+          )
+          setDebug(null)
+          console.error('[place-share]', e)
+        }
       } finally {
         if (!cancelled) setBusy(false)
       }
@@ -111,6 +130,12 @@ export function PlaceShareSheet({
     const t = window.setTimeout(() => setCopied(false), 2200)
     return () => window.clearTimeout(t)
   }, [copied])
+
+  useEffect(() => {
+    if (!debugCopied) return
+    const t = window.setTimeout(() => setDebugCopied(false), 2200)
+    return () => window.clearTimeout(t)
+  }, [debugCopied])
 
   return (
     <BottomSheet
@@ -151,9 +176,38 @@ export function PlaceShareSheet({
         ) : null}
 
         {error ? (
-          <p className="rounded-xl border border-warn/30 bg-honey-soft/60 px-3 py-2 text-sm text-ink">
-            {error}
-          </p>
+          <div className="space-y-2 rounded-xl border border-warn/30 bg-honey-soft/60 px-3 py-2.5">
+            <p className="text-sm font-bold text-ink">{error}</p>
+            {debug ? (
+              <>
+                <p className="text-xs text-ink-soft">
+                  {debug.code ? `${debug.code} · ` : ''}
+                  {debug.httpStatus != null ? `HTTP ${debug.httpStatus} · ` : ''}
+                  {debug.attempt}
+                  {debug.projectUrl ? ` · ${debug.projectUrl}` : ''}
+                </p>
+                <pre className="max-h-40 overflow-auto rounded-lg border border-line/70 bg-panel/80 p-2 text-[11px] leading-snug text-ink">
+                  {JSON.stringify(debug, null, 2)}
+                </pre>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-10 min-h-10 w-full rounded-xl text-sm"
+                  onClick={async () => {
+                    const ok = await copyText(JSON.stringify(debug, null, 2))
+                    if (ok) setDebugCopied(true)
+                  }}
+                >
+                  {debugCopied ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  {debugCopied ? 'Debug copied' : 'Copy debug details'}
+                </Button>
+              </>
+            ) : null}
+          </div>
         ) : null}
 
         {url ? (

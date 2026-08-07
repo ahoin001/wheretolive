@@ -414,6 +414,91 @@ export async function updateProfile(fields: {
   if (error) throw error
 }
 
+/** Copy-paste friendly details when guest-link creation fails. */
+export type ShareLinkDebug = {
+  at: string
+  rpc: string
+  projectUrl: string | null
+  attempt: string
+  httpStatus: number | null
+  code: string | null
+  message: string
+  details: string | null
+  hint: string | null
+  session: {
+    signedIn: boolean
+    userId: string | null
+    email: string | null
+  }
+  request: {
+    kind: ShareKind
+    placeCount: number
+    title: string | null
+    expiresDays: number | null
+    placeIds: string[]
+    payloadKeys: string[]
+  }
+  attempts: Array<{
+    attempt: string
+    code: string | null
+    message: string
+    details: string | null
+    hint: string | null
+    httpStatus: number | null
+  }>
+}
+
+export class ShareLinkError extends Error {
+  readonly debug: ShareLinkDebug
+  readonly userMessage: string
+
+  constructor(userMessage: string, debug: ShareLinkDebug) {
+    super(userMessage)
+    this.name = 'ShareLinkError'
+    this.userMessage = userMessage
+    this.debug = debug
+  }
+
+  toCopyText(): string {
+    return JSON.stringify(this.debug, null, 2)
+  }
+}
+
+function rpcErrorParts(error: unknown): {
+  code: string | null
+  message: string
+  details: string | null
+  hint: string | null
+  httpStatus: number | null
+} {
+  const e = error as {
+    code?: string
+    message?: string
+    details?: string
+    hint?: string
+    status?: number
+  } | null
+  return {
+    code: typeof e?.code === 'string' ? e.code : null,
+    message: typeof e?.message === 'string' ? e.message : String(error),
+    details: typeof e?.details === 'string' ? e.details : null,
+    hint: typeof e?.hint === 'string' ? e.hint : null,
+    httpStatus: typeof e?.status === 'number' ? e.status : null,
+  }
+}
+
+function isMissingRpcError(error: unknown): boolean {
+  const { code, message, httpStatus } = rpcErrorParts(error)
+  return (
+    httpStatus === 404 ||
+    code === 'PGRST202' ||
+    code === 'PGRST204' ||
+    /schema cache|could not find the function|not find the function|404/i.test(
+      message,
+    )
+  )
+}
+
 /** Create a guest-readable snapshot link (authenticated). */
 export async function createPlaceShareLink(input: {
   places: SavedPlace[]
@@ -426,44 +511,150 @@ export async function createPlaceShareLink(input: {
     throw new Error('Pick at least one place to share.')
   }
   const kind: ShareKind = snapshots.length === 1 ? 'place' : 'collection'
-  const payload: Record<string, unknown> = {
-    kind,
-    title: input.title ?? null,
-    places: snapshots,
-  }
-  if (
+  const title = input.title ?? null
+  const expiresDays =
     typeof input.expiresDays === 'number' &&
     Number.isFinite(input.expiresDays) &&
     input.expiresDays > 0
-  ) {
-    payload.expiresDays = Math.floor(input.expiresDays)
+      ? Math.floor(input.expiresDays)
+      : null
+
+  const payload: Record<string, unknown> = {
+    kind,
+    title,
+    places: snapshots,
+  }
+  if (expiresDays != null) payload.expiresDays = expiresDays
+
+  const projectUrl =
+    typeof import.meta.env.VITE_SUPABASE_URL === 'string'
+      ? import.meta.env.VITE_SUPABASE_URL
+      : null
+
+  const {
+    data: { user },
+  } = await client.auth.getUser()
+
+  const attempts: ShareLinkDebug['attempts'] = []
+
+  const baseDebug = (): Omit<ShareLinkDebug, 'attempt' | 'httpStatus' | 'code' | 'message' | 'details' | 'hint'> => ({
+    at: new Date().toISOString(),
+    rpc: 'nc_create_place_share',
+    projectUrl,
+    session: {
+      signedIn: Boolean(user),
+      userId: user?.id ?? null,
+      email: user?.email ?? null,
+    },
+    request: {
+      kind,
+      placeCount: snapshots.length,
+      title,
+      expiresDays,
+      placeIds: snapshots.map((p) => p.id),
+      payloadKeys: Object.keys(payload),
+    },
+    attempts,
+  })
+
+  const throwShareError = (
+    userMessage: string,
+    attempt: string,
+    error: unknown,
+  ): never => {
+    const parts = rpcErrorParts(error)
+    attempts.push({ attempt, ...parts })
+    throw new ShareLinkError(userMessage, {
+      ...baseDebug(),
+      attempt,
+      ...parts,
+    })
   }
 
-  // Prefer single jsonb payload; legacy multi-arg kept server-side for stale clients.
-  const { data, error } = await client.rpc('nc_create_place_share', {
+  // 1) Preferred: single jsonb payload (unique overload after migration)
+  const payloadCall = await client.rpc('nc_create_place_share', {
     p_payload: payload,
   })
-  if (error) {
-    const code = (error as { code?: string }).code
-    if (code === 'PGRST202' || /schema cache|not find the function/i.test(error.message)) {
-      throw new Error(
-        'Share link service is updating. Wait a few seconds and try again.',
+  if (!payloadCall.error) {
+    const row = (payloadCall.data ?? {}) as Record<string, unknown>
+    const token = String(row.token ?? '')
+    if (!token) {
+      return throwShareError(
+        'Share link was not created (empty token).',
+        'payload_empty_token',
+        { message: 'RPC returned no token', details: JSON.stringify(row) },
       )
     }
-    if (code === '42501' || /permission denied|not authenticated|JWT/i.test(error.message)) {
-      throw new Error('Sign in to create a guest link.')
+    return {
+      id: String(row.id ?? ''),
+      token,
+      kind: row.kind === 'collection' ? 'collection' : 'place',
+      path: String(row.path ?? `/s/${token}`),
     }
-    throw error
   }
-  const row = (data ?? {}) as Record<string, unknown>
-  const token = String(row.token ?? '')
-  if (!token) throw new Error('Share link was not created.')
-  return {
-    id: String(row.id ?? ''),
-    token,
-    kind: row.kind === 'collection' ? 'collection' : 'place',
-    path: String(row.path ?? `/s/${token}`),
+
+  attempts.push({ attempt: 'p_payload', ...rpcErrorParts(payloadCall.error) })
+
+  // 2) Fallback: legacy multi-arg signature (older DBs / stale caches)
+  if (isMissingRpcError(payloadCall.error)) {
+    const legacyArgs: Record<string, unknown> = {
+      p_kind: kind,
+      p_title: title,
+      p_places: snapshots,
+    }
+    if (expiresDays != null) legacyArgs.p_expires_days = expiresDays
+
+    const legacyCall = await client.rpc('nc_create_place_share', legacyArgs)
+    if (!legacyCall.error) {
+      const row = (legacyCall.data ?? {}) as Record<string, unknown>
+      const token = String(row.token ?? '')
+      if (!token) {
+        return throwShareError(
+          'Share link was not created (empty token).',
+          'legacy_empty_token',
+          { message: 'Legacy RPC returned no token', details: JSON.stringify(row) },
+        )
+      }
+      return {
+        id: String(row.id ?? ''),
+        token,
+        kind: row.kind === 'collection' ? 'collection' : 'place',
+        path: String(row.path ?? `/s/${token}`),
+      }
+    }
+    attempts.push({ attempt: 'legacy_args', ...rpcErrorParts(legacyCall.error) })
+
+    if (!user) {
+      return throwShareError(
+        'Sign in to create a guest link.',
+        'legacy_args',
+        legacyCall.error,
+      )
+    }
+    return throwShareError(
+      'Could not reach the share-link API (RPC missing or schema cache stale). Copy the debug details below.',
+      'legacy_args',
+      legacyCall.error,
+    )
   }
+
+  const parts = rpcErrorParts(payloadCall.error)
+  if (
+    parts.code === '42501' ||
+    /permission denied|not authenticated|JWT/i.test(parts.message)
+  ) {
+    return throwShareError(
+      'Sign in to create a guest link.',
+      'p_payload',
+      payloadCall.error,
+    )
+  }
+
+  return throwShareError(
+    parts.message || 'Could not create a share link.',
+    'p_payload',
+    payloadCall.error,
+  )
 }
 
 /**

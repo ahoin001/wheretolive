@@ -1186,7 +1186,7 @@ export function PlacesWorkspace({
 
   const viewModes = [
     { id: 'list' as const, label: 'List' },
-    { id: 'tiers' as const, label: 'Board' },
+    { id: 'tiers' as const, label: 'Tier List' },
     { id: 'compare' as const, label: 'Compare' },
   ]
 
@@ -1959,7 +1959,7 @@ export function PlacesWorkspace({
                       alert(
                         e instanceof Error
                           ? e.message
-                          : 'Could not save board order.',
+                          : 'Could not update the Tier List.',
                       )
                     })
                   }}
@@ -3049,7 +3049,7 @@ export function PlacesWorkspace({
                 deleteTarget.ids.length === 1 ? '' : 's'
               } will be removed from this list. This can’t be undone.`
             : deleteTarget?.kind === 'single'
-              ? `“${deleteTarget.title}” will be removed from your board. This can’t be undone.`
+              ? `“${deleteTarget.title}” will be removed from your Tier List. This can’t be undone.`
               : undefined
         }
         confirmLabel={
