@@ -158,16 +158,18 @@ export function PlaceShareSheet({
             {title}
           </p>
           {isCollection ? (
-            <ul className="mt-2 space-y-1 text-sm text-ink-soft">
-              {places.slice(0, 5).map((p) => (
-                <li key={p.id} className="truncate">
+            <ol className="mt-2 list-decimal space-y-1 pl-4 text-sm text-ink-soft">
+              {places.slice(0, 8).map((p) => (
+                <li key={p.id} className="truncate pl-1">
                   {p.title || 'Untitled'}
                 </li>
               ))}
-              {places.length > 5 ? (
-                <li>+{places.length - 5} more</li>
+              {places.length > 8 ? (
+                <li className="list-none pl-1 text-ink-soft">
+                  +{places.length - 8} more
+                </li>
               ) : null}
-            </ul>
+            </ol>
           ) : null}
         </div>
 

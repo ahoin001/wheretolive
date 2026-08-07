@@ -92,6 +92,41 @@ const TIER_LABEL: Record<PlaceTier, string> = {
   pass: 'Pass',
 }
 
+/** Resolve places in the exact order of `ids` (selection / share order). */
+function placesInIdOrder(
+  places: Iterable<SavedPlace>,
+  ids: string[],
+): SavedPlace[] {
+  const byId = new Map<string, SavedPlace>()
+  for (const place of places) byId.set(place.id, place)
+  const ordered: SavedPlace[] = []
+  for (const id of ids) {
+    const place = byId.get(id)
+    if (place) ordered.push(place)
+  }
+  return ordered
+}
+
+/** Tier board left→right / top→bottom order for “select all shown”. */
+function idsInTierDisplayOrder(places: SavedPlace[]): string[] {
+  const buckets: Record<PlaceTier, SavedPlace[]> = {
+    dream: [],
+    strong: [],
+    maybe: [],
+    pass: [],
+  }
+  for (const place of places) {
+    const tier = buckets[place.tier] ? place.tier : 'maybe'
+    buckets[tier].push(place)
+  }
+  for (const tier of TIERS) {
+    buckets[tier].sort(
+      (a, b) => (a.boardOrder ?? 0) - (b.boardOrder ?? 0),
+    )
+  }
+  return TIERS.flatMap((tier) => buckets[tier].map((p) => p.id))
+}
+
 const PRO_SUGGESTIONS = [
   'Yard',
   'Patio',
@@ -903,13 +938,10 @@ export function PlacesWorkspace({
   }
 
   const toggleSelect = (id: string) => {
+    // Append on select so share / copy / guest links keep tap order.
     setSelectedIds((ids) =>
       ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
     )
-  }
-
-  const selectAllVisible = () => {
-    setSelectedIds(listPlaces.map((p) => p.id))
   }
 
   const clearSelection = () => setSelectedIds([])
@@ -1007,6 +1039,25 @@ export function PlacesWorkspace({
     activeCityKeys,
     addedFilter,
   ])
+
+  /** Places in the order the user selected them (for share / copy / guest links). */
+  const selectedPlacesInOrder = useMemo(
+    () => placesInIdOrder(allPlaces, selectedIds),
+    [allPlaces, selectedIds],
+  )
+
+  const selectAllVisible = () => {
+    if (view === 'tiers') {
+      setSelectedIds(idsInTierDisplayOrder(boardPlaces))
+      return
+    }
+    setSelectedIds(listPlaces.map((p) => p.id))
+  }
+
+  const openGuestLinkForSelection = () => {
+    if (!selectedPlacesInOrder.length) return
+    setLinkSharePlaces(selectedPlacesInOrder)
+  }
 
   const cityFilterActive = activeCityKeys.length > 0
   const petsFilterActive = petsFilter !== 'all'
@@ -1580,7 +1631,13 @@ export function PlacesWorkspace({
             type="button"
             variant="ghost"
             className="h-9 min-h-9 px-2.5 text-sm"
-            onClick={() => setSelectedIds(allPlaces.map((p) => p.id))}
+            onClick={() =>
+              setSelectedIds(
+                view === 'tiers'
+                  ? idsInTierDisplayOrder(allPlaces)
+                  : allPlaces.map((p) => p.id),
+              )
+            }
           >
             Full list
           </Button>
@@ -1636,12 +1693,7 @@ export function PlacesWorkspace({
               type="button"
               variant="secondary"
               className="h-9 min-h-9 px-2.5 text-sm"
-              onClick={() => {
-                const selected = allPlaces.filter((p) =>
-                  selectedIds.includes(p.id),
-                )
-                setLinkSharePlaces(selected)
-              }}
+              onClick={openGuestLinkForSelection}
               aria-label="Guest link"
               title="Create a guest link"
             >
@@ -2653,7 +2705,13 @@ export function PlacesWorkspace({
               type="button"
               variant="ghost"
               className="hidden min-h-11 px-2.5 text-sm md:inline-flex md:h-9 md:min-h-9"
-              onClick={() => setSelectedIds(allPlaces.map((p) => p.id))}
+              onClick={() =>
+              setSelectedIds(
+                view === 'tiers'
+                  ? idsInTierDisplayOrder(allPlaces)
+                  : allPlaces.map((p) => p.id),
+              )
+            }
             >
               Full list
             </Button>
@@ -2709,12 +2767,7 @@ export function PlacesWorkspace({
                 type="button"
                 variant="secondary"
                 className="hidden min-h-11 px-2.5 text-sm sm:inline-flex md:h-9 md:min-h-9"
-                onClick={() => {
-                  const selected = allPlaces.filter((p) =>
-                    selectedIds.includes(p.id),
-                  )
-                  setLinkSharePlaces(selected)
-                }}
+                onClick={openGuestLinkForSelection}
                 aria-label="Guest link"
                 title="Create a guest link"
               >
@@ -2771,10 +2824,7 @@ export function PlacesWorkspace({
                       type="button"
                       className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
                       onClick={() => {
-                        const selected = allPlaces.filter((p) =>
-                          selectedIds.includes(p.id),
-                        )
-                        setLinkSharePlaces(selected)
+                        openGuestLinkForSelection()
                         setSelectMoreOpen(false)
                       }}
                     >
