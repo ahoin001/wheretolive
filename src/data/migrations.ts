@@ -139,6 +139,10 @@ function normalizePlace(raw: unknown): SavedPlace | null {
     bedrooms: p.bedrooms != null && p.bedrooms !== '' ? Number(p.bedrooms) : null,
     bathrooms:
       p.bathrooms != null && p.bathrooms !== '' ? Number(p.bathrooms) : null,
+    sqft:
+      p.sqft != null && p.sqft !== '' && Number(p.sqft) > 0
+        ? Number(p.sqft)
+        : null,
     notes: typeof p.notes === 'string' ? p.notes : '',
     pets: normalizePets(p.pets, p.petsAllowed),
     petsNote: typeof p.petsNote === 'string' ? p.petsNote : '',

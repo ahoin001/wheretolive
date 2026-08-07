@@ -29,7 +29,10 @@ import type {
   PlaceTier,
   SavedPlace,
 } from '../../domain/types'
-import { PLACE_HOME_TYPE_OPTIONS } from '../../domain/types'
+import {
+  PLACE_HOME_TYPE_OPTIONS,
+  PLACE_SQFT_FILTER_OPTIONS,
+} from '../../domain/types'
 import {
   cityKey,
   formatPlaceAddress,
@@ -140,6 +143,22 @@ function matchesHomeTypeFilter(
 ): boolean {
   if (filter === 'all') return true
   return place.homeType === filter
+}
+
+/** Sqft band filter; `all` or a PLACE_SQFT_FILTER_OPTIONS value */
+type SqftFilter = 'all' | string
+const DEFAULT_SQFT_FILTER: SqftFilter = 'all'
+
+function matchesSqftFilter(
+  place: Pick<SavedPlace, 'sqft'>,
+  filter: SqftFilter,
+): boolean {
+  if (filter === 'all') return true
+  const band = PLACE_SQFT_FILTER_OPTIONS.find((o) => o.value === filter)
+  if (!band || place.sqft == null || place.sqft <= 0) return false
+  if (place.sqft < band.min) return false
+  if (band.max != null && place.sqft >= band.max) return false
+  return true
 }
 
 function PetsFilterControl({
@@ -389,6 +408,7 @@ const emptyForm = (): PlaceForm => ({
   location: '',
   bedrooms: null,
   bathrooms: null,
+  sqft: null,
   notes: '',
   pets: 'no',
   petsNote: '',
@@ -426,6 +446,10 @@ function formFromPlace(place: SavedPlace): PlaceForm {
       rest.homeType === 'single_family' ||
       rest.homeType === 'townhome'
         ? rest.homeType
+        : null,
+    sqft:
+      rest.sqft != null && Number.isFinite(rest.sqft) && rest.sqft > 0
+        ? rest.sqft
         : null,
     pets: rest.pets === 'yes' || rest.pets === 'limited' ? rest.pets : 'no',
     petsNote: rest.petsNote ?? '',
@@ -587,6 +611,7 @@ function countActiveFilters(
   listSort: ListSort,
   petsFilter: PetsFilter,
   homeTypeFilter: HomeTypeFilter,
+  sqftFilter: SqftFilter,
   mutualOnly: boolean,
   cityFilterActive: boolean,
 ): number {
@@ -594,6 +619,7 @@ function countActiveFilters(
     (listSort !== 'recent' ? 1 : 0) +
     (petsFilter !== 'all' ? 1 : 0) +
     (homeTypeFilter !== 'all' ? 1 : 0) +
+    (sqftFilter !== 'all' ? 1 : 0) +
     (mutualOnly ? 1 : 0) +
     (cityFilterActive ? 1 : 0)
   )
@@ -643,12 +669,14 @@ function sortPlaces(
   sort: ListSort,
   petsFilter: PetsFilter,
   homeTypeFilter: HomeTypeFilter,
+  sqftFilter: SqftFilter,
   cityKeys: string[],
   mutualOnly: boolean,
 ): SavedPlace[] {
   let next = places.filter((p) => {
     if (!matchesPetsFilter(p, petsFilter)) return false
     if (!matchesHomeTypeFilter(p, homeTypeFilter)) return false
+    if (!matchesSqftFilter(p, sqftFilter)) return false
     if (!placeMatchesCities(p, cityKeys)) return false
     if (mutualOnly && !isMutualLike(p)) return false
     return true
@@ -706,6 +734,7 @@ export function PlacesWorkspace({
   const [homeTypeFilter, setHomeTypeFilter] = useState<HomeTypeFilter>(
     DEFAULT_HOME_TYPE_FILTER,
   )
+  const [sqftFilter, setSqftFilter] = useState<SqftFilter>(DEFAULT_SQFT_FILTER)
   const [mutualOnly, setMutualOnly] = useState(false)
   const [cityKeys, setCityKeys] = useState<string[]>([])
   const [selectMode, setSelectMode] = useState(false)
@@ -847,6 +876,7 @@ export function PlacesWorkspace({
       listSort,
       petsFilter,
       homeTypeFilter,
+      sqftFilter,
       activeCityKeys,
       mutualOnly,
     )
@@ -855,6 +885,7 @@ export function PlacesWorkspace({
     listSort,
     petsFilter,
     homeTypeFilter,
+    sqftFilter,
     activeCityKeys,
     mutualOnly,
   ])
@@ -863,24 +894,38 @@ export function PlacesWorkspace({
     let base = allPlaces.filter(
       (p) =>
         matchesPetsFilter(p, petsFilter) &&
-        matchesHomeTypeFilter(p, homeTypeFilter),
+        matchesHomeTypeFilter(p, homeTypeFilter) &&
+        matchesSqftFilter(p, sqftFilter),
     )
     if (mutualOnly) base = base.filter(isMutualLike)
     if (activeCityKeys.length) {
       base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
     }
     return [...base].sort(sortByRecentlyAdded)
-  }, [allPlaces, petsFilter, homeTypeFilter, mutualOnly, activeCityKeys])
+  }, [
+    allPlaces,
+    petsFilter,
+    homeTypeFilter,
+    sqftFilter,
+    mutualOnly,
+    activeCityKeys,
+  ])
 
   const cityFilterActive = activeCityKeys.length > 0
   const petsFilterActive = petsFilter !== 'all'
   const homeTypeFilterActive = homeTypeFilter !== 'all'
+  const sqftFilterActive = sqftFilter !== 'all'
   const hasActiveFilters =
-    petsFilterActive || homeTypeFilterActive || mutualOnly || cityFilterActive
+    petsFilterActive ||
+    homeTypeFilterActive ||
+    sqftFilterActive ||
+    mutualOnly ||
+    cityFilterActive
   const activeFilterCount = countActiveFilters(
     listSort,
     petsFilter,
     homeTypeFilter,
+    sqftFilter,
     mutualOnly,
     cityFilterActive,
   )
@@ -889,6 +934,7 @@ export function PlacesWorkspace({
     setListSort('recent')
     setPetsFilter('all')
     setHomeTypeFilter('all')
+    setSqftFilter('all')
     setMutualOnly(false)
     setCityKeys([])
   }
@@ -935,6 +981,10 @@ export function PlacesWorkspace({
       price: form.listingKind === 'buy' ? form.price : null,
       // Price only: rent uses monthly; buy uses list price (no estimated monthly).
       monthlyEstimate: form.listingKind === 'rent' ? form.monthlyEstimate : null,
+      sqft:
+        form.sqft != null && Number.isFinite(form.sqft) && form.sqft > 0
+          ? form.sqft
+          : null,
       pets: form.pets === 'yes' || form.pets === 'limited' ? form.pets : 'no',
       petsNote: form.pets === 'no' ? '' : form.petsNote,
       proTags: form.proTags,
@@ -1058,6 +1108,24 @@ export function PlacesWorkspace({
         >
           <option value="all">Any</option>
           {PLACE_HOME_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex min-w-0 flex-col gap-1.5 md:min-w-[11rem]">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+          Sqft
+        </span>
+        <select
+          value={sqftFilter}
+          onChange={(e) => setSqftFilter(e.target.value as SqftFilter)}
+          className="h-10 w-full rounded-xl border border-line bg-panel px-2.5 text-sm font-bold text-ink md:h-8 md:rounded-lg"
+        >
+          <option value="all">Any</option>
+          {PLACE_SQFT_FILTER_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
               {opt.label}
             </option>
@@ -2300,7 +2368,7 @@ export function PlacesWorkspace({
 
                     {/* Layout */}
                     <FormSection>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                         <Field label="Beds">
                           <NumberInput
                             value={form.bedrooms ?? 0}
@@ -2315,6 +2383,20 @@ export function PlacesWorkspace({
                             onChange={(bathrooms) =>
                               setForm((f) => ({ ...f, bathrooms }))
                             }
+                          />
+                        </Field>
+                        <Field label="Sqft" className="col-span-2 sm:col-span-1">
+                          <NumberInput
+                            value={form.sqft ?? 0}
+                            min={0}
+                            step={50}
+                            onChange={(sqft) =>
+                              setForm((f) => ({
+                                ...f,
+                                sqft: sqft > 0 ? sqft : null,
+                              }))
+                            }
+                            placeholder="e.g. 1800"
                           />
                         </Field>
                       </div>
@@ -2967,6 +3049,9 @@ function PlaceCard({
   const bedsBaths = [
     place.bedrooms != null ? `${place.bedrooms} bd` : null,
     place.bathrooms != null ? `${place.bathrooms} ba` : null,
+    place.sqft != null && place.sqft > 0
+      ? `${Math.round(place.sqft).toLocaleString()} sqft`
+      : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -3040,7 +3125,10 @@ function PlaceCard({
               liked && meTone.onFill,
             )}
           >
-            <Heart className={cn('h-4 w-4', liked && 'fill-current')} />
+            <Heart
+              className={cn('h-4 w-4', liked ? 'fill-current' : 'fill-none')}
+              strokeWidth={liked ? 2 : 2.25}
+            />
           </button>
         ) : null}
         {thumbLikers.length > 0 && !selectMode ? (
@@ -3133,17 +3221,19 @@ function PlaceCard({
                   variant="secondary"
                   className={cn(
                     'h-9 min-h-9 rounded-xl px-2.5',
-                    liked && meTone.onFill,
+                    liked ? meTone.onFill : 'text-ink-soft',
                   )}
                   onClick={onFavorite}
                   aria-pressed={liked}
                   aria-label={liked ? 'Unlike place' : 'Like place'}
+                  title={liked ? 'Unlike' : 'Like'}
                 >
                   <Heart
                     className={cn(
-                      'h-3.5 w-3.5',
-                      liked ? 'fill-current' : meTone.heart,
+                      'h-4 w-4',
+                      liked ? 'fill-current text-current' : 'fill-none text-ink-soft',
                     )}
+                    strokeWidth={liked ? 2 : 2.25}
                   />
                 </Button>
                 <Button

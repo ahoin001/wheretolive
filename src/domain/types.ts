@@ -73,6 +73,24 @@ export const PLACE_HOME_TYPE_OPTIONS: {
   { value: 'townhome', label: 'Townhome' },
 ]
 
+/**
+ * Living-area bands (sqft). Ranges are [min, max) except the top band (min+).
+ * Form still stores exact sqft.
+ */
+export const PLACE_SQFT_FILTER_OPTIONS: {
+  value: string
+  label: string
+  min: number
+  /** Exclusive upper bound; null = no upper limit */
+  max: number | null
+}[] = [
+  { value: 'under_1000', label: 'Under 1,000', min: 0, max: 1000 },
+  { value: '1000_1200', label: '1,000 – 1,200', min: 1000, max: 1200 },
+  { value: '1200_1400', label: '1,200 – 1,400', min: 1200, max: 1400 },
+  { value: '1400_1600', label: '1,400 – 1,600', min: 1400, max: 1600 },
+  { value: '1600_plus', label: '1,600+', min: 1600, max: null },
+]
+
 export interface OwnerProfile {
   label: string
   ageRange: AgeRange
@@ -243,6 +261,8 @@ export interface SavedPlace {
   location: string
   bedrooms: number | null
   bathrooms: number | null
+  /** Interior living area in square feet */
+  sqft: number | null
   notes: string
   /** Whether pets are allowed */
   pets: PetsPolicy

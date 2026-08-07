@@ -94,6 +94,10 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
       raw.bathrooms == null || raw.bathrooms === ''
         ? null
         : Number(raw.bathrooms),
+    sqft:
+      raw.sqft == null || raw.sqft === '' || Number(raw.sqft) <= 0
+        ? null
+        : Number(raw.sqft),
     notes: String(raw.notes ?? ''),
     pets:
       raw.pets === 'yes' || raw.pets === 'limited' || raw.pets === 'no'
@@ -135,6 +139,7 @@ export function placeToPayload(place: SavedPlace, listId?: string | null) {
     location: formatPlaceAddress(addr) || place.location,
     bedrooms: place.bedrooms,
     bathrooms: place.bathrooms,
+    sqft: place.sqft,
     notes: place.notes,
     pets: place.pets,
     petsNote: place.petsNote,
