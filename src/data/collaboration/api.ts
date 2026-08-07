@@ -426,13 +426,37 @@ export async function createPlaceShareLink(input: {
     throw new Error('Pick at least one place to share.')
   }
   const kind: ShareKind = snapshots.length === 1 ? 'place' : 'collection'
-  const { data, error } = await client.rpc('nc_create_place_share', {
+  const args: {
+    p_kind: string
+    p_title: string | null
+    p_places: SharedPlaceSnapshot[]
+    p_expires_days?: number
+  } = {
     p_kind: kind,
     p_title: input.title ?? null,
     p_places: snapshots,
-    p_expires_days: input.expiresDays ?? null,
-  })
-  if (error) throw error
+  }
+  if (
+    typeof input.expiresDays === 'number' &&
+    Number.isFinite(input.expiresDays) &&
+    input.expiresDays > 0
+  ) {
+    args.p_expires_days = Math.floor(input.expiresDays)
+  }
+
+  const { data, error } = await client.rpc('nc_create_place_share', args)
+  if (error) {
+    const code = (error as { code?: string }).code
+    if (code === 'PGRST202' || /schema cache|not find the function/i.test(error.message)) {
+      throw new Error(
+        'Share link service is updating. Wait a few seconds and try again.',
+      )
+    }
+    if (code === '42501' || /permission denied|not authenticated|JWT/i.test(error.message)) {
+      throw new Error('Sign in to create a guest link.')
+    }
+    throw error
+  }
   const row = (data ?? {}) as Record<string, unknown>
   const token = String(row.token ?? '')
   if (!token) throw new Error('Share link was not created.')
