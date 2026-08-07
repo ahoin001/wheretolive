@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Check, Layers } from 'lucide-react'
+import { Check, Layers } from 'lucide-react'
 import type { PlaceTier, SavedPlace } from '../../domain/types'
 import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
@@ -52,118 +52,6 @@ export const TIER_MOVE_OPTIONS: {
   },
 ]
 
-const TIER_INDEX: Record<PlaceTier, number> = {
-  dream: 0,
-  strong: 1,
-  maybe: 2,
-  pass: 3,
-}
-
-function neighborTier(current: PlaceTier): {
-  up: PlaceTier | null
-  down: PlaceTier | null
-} {
-  const i = TIER_INDEX[current]
-  return {
-    up: i > 0 ? TIER_MOVE_OPTIONS[i - 1]!.id : null,
-    down: i < TIER_MOVE_OPTIONS.length - 1 ? TIER_MOVE_OPTIONS[i + 1]!.id : null,
-  }
-}
-
-/**
- * Desktop: promote / demote one step + clickable tier rail.
- * Pointer-first, visible without opening a menu.
- */
-export function DesktopTierMover({
-  current,
-  onMove,
-  disabled,
-}: {
-  current: PlaceTier
-  onMove: (tier: PlaceTier) => void
-  disabled?: boolean
-}) {
-  const { up, down } = neighborTier(current)
-
-  return (
-    <div
-      className="mt-2 space-y-1.5 border-t border-line/70 pt-2"
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          disabled={disabled || !up}
-          onClick={() => up && onMove(up)}
-          className={cn(
-            'inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-line bg-folio/80 text-[11px] font-bold text-ink',
-            motion.chip,
-            (!up || disabled) && 'opacity-40',
-          )}
-          title={up ? `Promote to ${TIER_MOVE_OPTIONS[TIER_INDEX[up]]!.short}` : undefined}
-          aria-label={up ? `Promote to ${TIER_MOVE_OPTIONS[TIER_INDEX[up]]!.label}` : 'Already top tier'}
-        >
-          <ArrowUp className="h-3.5 w-3.5" aria-hidden />
-          Promote
-        </button>
-        <button
-          type="button"
-          disabled={disabled || !down}
-          onClick={() => down && onMove(down)}
-          className={cn(
-            'inline-flex h-8 flex-1 items-center justify-center gap-1 rounded-lg border border-line bg-folio/80 text-[11px] font-bold text-ink',
-            motion.chip,
-            (!down || disabled) && 'opacity-40',
-          )}
-          title={
-            down
-              ? `Demote to ${TIER_MOVE_OPTIONS[TIER_INDEX[down]]!.short}`
-              : undefined
-          }
-          aria-label={
-            down
-              ? `Demote to ${TIER_MOVE_OPTIONS[TIER_INDEX[down]]!.label}`
-              : 'Already bottom tier'
-          }
-        >
-          <ArrowDown className="h-3.5 w-3.5" aria-hidden />
-          Demote
-        </button>
-      </div>
-      <div
-        role="group"
-        aria-label="Move to tier"
-        className="grid grid-cols-4 gap-1"
-      >
-        {TIER_MOVE_OPTIONS.map((opt) => {
-          const active = opt.id === current
-          return (
-            <button
-              key={opt.id}
-              type="button"
-              disabled={disabled || active}
-              onClick={() => onMove(opt.id)}
-              className={cn(
-                'rounded-lg border px-0.5 py-1.5 text-center text-[10px] font-bold leading-tight',
-                motion.chip,
-                active ? opt.chipActive : cn('bg-panel', opt.chip),
-                disabled && 'opacity-50',
-              )}
-              aria-pressed={active}
-              aria-label={
-                active ? `Current tier: ${opt.label}` : `Move to ${opt.label}`
-              }
-            >
-              {opt.short}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 /** Mobile: thumb-reach control that opens the tier sheet. */
 export function MobileTierMoveTrigger({
   onOpen,
@@ -181,7 +69,8 @@ export function MobileTierMoveTrigger({
         onOpen()
       }}
       className={cn(
-        'mt-2 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-line bg-folio text-xs font-bold text-ink',
+        'mt-2 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-line/80 bg-folio/80 text-xs font-bold text-ink-soft',
+        'hover:border-line hover:text-ink',
         motion.chip,
         disabled && 'opacity-50',
       )}

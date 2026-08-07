@@ -12,6 +12,8 @@ import {
   type DragEndEvent,
   type DragOverEvent,
   type DragStartEvent,
+  type DraggableAttributes,
+  type DraggableSyntheticListeners,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -40,12 +42,12 @@ import {
   type TierReviewState,
 } from '../../domain/places/tierReview'
 import { formatMoney } from '../../domain/finance/calculations'
+import { placeCityLabel } from '../../domain/places/address'
 import { motion } from '../../lib/motion'
 import { tweenPanel, easeSnappy } from '../../lib/motionPresets'
 import { cn } from '../../lib/utils'
 import { OpenableImage } from './ImageLightbox'
 import {
-  DesktopTierMover,
   MobileTierMoveTrigger,
   TierMoveSheet,
 } from './TierMoveControls'
@@ -146,51 +148,50 @@ function CompactPets({ pets }: { pets: PetsPolicy }) {
   )
 }
 
-/** Opens the listing in a new tab without triggering card edit / drag. */
-function OpenListingControl({
-  url,
-  variant,
+function CityBadge({
+  place,
+  className,
 }: {
-  url: string
-  variant: 'photo' | 'row'
+  place: SavedPlace
+  className?: string
 }) {
+  const city = placeCityLabel(place)
+  if (!city) return null
+
+  return (
+    <span
+      className={cn(
+        'pointer-events-none absolute bottom-1.5 right-1.5 z-10 max-w-[70%] truncate rounded-full bg-panel/95 px-2 py-1 text-[10px] font-bold leading-none text-ink shadow-sm',
+        className,
+      )}
+      title={city}
+    >
+      {city}
+    </span>
+  )
+}
+
+/** Opens the listing in a new tab without triggering card edit / drag. */
+function OpenListingControl({ url }: { url: string }) {
   const href = url.trim()
   if (!href) return null
 
-  const shared = {
-    href,
-    target: '_blank' as const,
-    rel: 'noreferrer',
-    onClick: (e: MouseEvent) => e.stopPropagation(),
-    onPointerDown: (e: PointerEvent) => e.stopPropagation(),
-  }
-
-  if (variant === 'photo') {
-    return (
-      <a
-        {...shared}
-        className={cn(
-          'absolute right-2 top-2 z-10 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-line/80 bg-panel/95 text-ink shadow-sm',
-          motion.chip,
-        )}
-        aria-label="Open listing"
-        title="Open listing"
-      >
-        <ExternalLink className="h-4 w-4" aria-hidden />
-      </a>
-    )
-  }
-
   return (
     <a
-      {...shared}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      onClick={(e: MouseEvent) => e.stopPropagation()}
+      onPointerDown={(e: PointerEvent) => e.stopPropagation()}
       className={cn(
-        'mt-2 inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-xl border border-sea/30 bg-sea/10 text-xs font-bold text-sea-deep',
+        'absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-ink/45 text-white backdrop-blur-[2px]',
+        'opacity-90 hover:bg-ink/60 hover:opacity-100',
         motion.chip,
       )}
+      aria-label="Open listing"
+      title="Open listing"
     >
       <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-      Open listing
     </a>
   )
 }
@@ -489,8 +490,7 @@ export function TierBoard({
         </p>
       ) : canDrag ? (
         <p className="hidden text-xs text-ink-soft md:block">
-          Promote or demote with the buttons on each place, click a tier chip to
-          jump, or drag to rearrange left to right.
+          Drag a place to reorder it, or drop it into another tier.
         </p>
       ) : null}
 
@@ -538,8 +538,9 @@ export function TierBoard({
               </div>
               {reorderEnabled && !selectMode ? (
                 <p className="mt-1.5 text-center text-[11px] text-ink-soft">
-                  Tap <span className="font-bold text-ink">Change tier</span> on a
-                  place — or press and hold to drag onto a tier chip.
+                  <span className="font-bold text-ink">Change tier</span> to
+                  move a place, or press and hold the grip to drag onto a tier
+                  chip.
                 </p>
               ) : null}
             </div>
@@ -741,18 +742,13 @@ export function TierBoard({
                                     selectMode={selectMode}
                                     density="desktop"
                                     canDrag={canDrag}
-                                    canMoveTier={
-                                      reorderEnabled && !selectMode
-                                    }
+                                    canMoveTier={false}
                                     onActivate={() =>
                                       selectMode
                                         ? onToggleSelect(place.id)
                                         : onEdit(place)
                                     }
                                     onOpenLightbox={onOpenLightbox}
-                                    onMoveTier={(nextTier) =>
-                                      commitMoveToTier(place.id, nextTier)
-                                    }
                                   />
                                 </li>
                               ))}
@@ -770,7 +766,7 @@ export function TierBoard({
 
         <DragOverlay dropAnimation={null}>
           {activePlace ? (
-            <div className="w-[11rem] rotate-1 scale-[1.03] opacity-95 shadow-[var(--shadow-lift)]">
+            <div className="w-[11rem] rotate-1 scale-[1.03] cursor-grabbing opacity-95 shadow-[var(--shadow-lift)]">
               <BoardTile
                 place={activePlace}
                 selected={false}
@@ -970,6 +966,40 @@ function MobileTierChip({
   )
 }
 
+function DragHandle({
+  label,
+  density,
+  attributes,
+  listeners,
+}: {
+  label: string
+  density: 'mobile' | 'desktop'
+  attributes: DraggableAttributes
+  listeners?: DraggableSyntheticListeners
+}) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'absolute left-2 top-2 z-20 inline-flex items-center justify-center touch-none',
+        'rounded-lg bg-ink/40 text-white/90 backdrop-blur-[2px]',
+        'hover:bg-ink/55 hover:text-white active:cursor-grabbing',
+        'cursor-grab',
+        motion.chip,
+        density === 'desktop'
+          ? 'h-8 w-8 opacity-50 group-hover:opacity-100 group-focus-within:opacity-100'
+          : 'h-9 w-9 opacity-90',
+      )}
+      aria-label={`Drag ${label}`}
+      title="Drag to move"
+      {...attributes}
+      {...listeners}
+    >
+      <GripVertical className={density === 'desktop' ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
+    </button>
+  )
+}
+
 function SortableBoardTile({
   place,
   selected,
@@ -979,7 +1009,6 @@ function SortableBoardTile({
   canMoveTier,
   onActivate,
   onOpenLightbox,
-  onMoveTier,
   onRequestMoveTier,
 }: {
   place: SavedPlace
@@ -990,7 +1019,6 @@ function SortableBoardTile({
   canMoveTier: boolean
   onActivate: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
-  onMoveTier?: (tier: PlaceTier) => void
   onRequestMoveTier?: () => void
 }) {
   const {
@@ -1017,17 +1045,6 @@ function SortableBoardTile({
       style={style}
       className={cn('relative', isDragging && 'opacity-40')}
     >
-      {canDrag ? (
-        <button
-          type="button"
-          className="absolute left-1 top-1 z-20 flex h-8 w-8 items-center justify-center rounded-lg bg-panel/90 text-ink-soft shadow-sm touch-none"
-          aria-label={`Drag ${place.title || 'place'}`}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-      ) : null}
       <BoardTile
         place={place}
         selected={selected}
@@ -1036,8 +1053,17 @@ function SortableBoardTile({
         canMoveTier={canMoveTier}
         onActivate={onActivate}
         onOpenLightbox={onOpenLightbox}
-        onMoveTier={onMoveTier}
         onRequestMoveTier={onRequestMoveTier}
+        dragHandle={
+          canDrag ? (
+            <DragHandle
+              label={place.title || 'place'}
+              density={density}
+              attributes={attributes}
+              listeners={listeners}
+            />
+          ) : null
+        }
       />
     </div>
   )
@@ -1088,17 +1114,6 @@ function SortableMobileRow({
       style={style}
       className={cn('relative', isDragging && 'opacity-40')}
     >
-      {canDrag ? (
-        <button
-          type="button"
-          className="absolute left-2 top-2 z-20 flex h-9 w-9 items-center justify-center rounded-lg bg-panel/95 text-ink-soft shadow-sm touch-none"
-          aria-label={`Drag ${place.title || 'place'}`}
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-      ) : null}
       <MobileRowCard
         place={place}
         selected={selected}
@@ -1108,6 +1123,16 @@ function SortableMobileRow({
         onEdit={onEdit}
         onOpenLightbox={onOpenLightbox}
         onRequestMoveTier={onRequestMoveTier}
+        dragHandle={
+          canDrag ? (
+            <DragHandle
+              label={place.title || 'place'}
+              density="mobile"
+              attributes={attributes}
+              listeners={listeners}
+            />
+          ) : null
+        }
       />
     </div>
   )
@@ -1122,8 +1147,8 @@ function BoardTile({
   canMoveTier = false,
   onActivate,
   onOpenLightbox,
-  onMoveTier,
   onRequestMoveTier,
+  dragHandle = null,
 }: {
   place: SavedPlace
   selected: boolean
@@ -1133,19 +1158,13 @@ function BoardTile({
   canMoveTier?: boolean
   onActivate: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
-  onMoveTier?: (tier: PlaceTier) => void
   onRequestMoveTier?: () => void
+  dragHandle?: ReactNode
 }) {
   const images = placeImages(place)
   const title = place.title || 'Untitled'
   const listingUrl = place.url?.trim() || ''
   const showListing = Boolean(listingUrl) && !selectMode && !dragging
-  const showDesktopMover =
-    density === 'desktop' &&
-    canMoveTier &&
-    !selectMode &&
-    !dragging &&
-    onMoveTier
   const showMobileMover =
     density === 'mobile' &&
     canMoveTier &&
@@ -1202,9 +1221,9 @@ function BoardTile({
             No photo
           </div>
         )}
-        {showListing ? (
-          <OpenListingControl url={listingUrl} variant="photo" />
-        ) : null}
+        {!dragging ? dragHandle : null}
+        {showListing ? <OpenListingControl url={listingUrl} /> : null}
+        {!dragging ? <CityBadge place={place} /> : null}
       </div>
 
       <div
@@ -1245,13 +1264,6 @@ function BoardTile({
           ) : null}
         </button>
 
-        {showDesktopMover ? (
-          <DesktopTierMover
-            current={place.tier}
-            onMove={onMoveTier}
-            disabled={!canMoveTier}
-          />
-        ) : null}
         {showMobileMover ? (
           <MobileTierMoveTrigger
             onOpen={onRequestMoveTier}
@@ -1272,6 +1284,7 @@ function MobileRowCard({
   onEdit,
   onOpenLightbox,
   onRequestMoveTier,
+  dragHandle = null,
 }: {
   place: SavedPlace
   selected: boolean
@@ -1281,6 +1294,7 @@ function MobileRowCard({
   onEdit: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
   onRequestMoveTier: () => void
+  dragHandle?: ReactNode
 }) {
   const images = placeImages(place)
   const title = place.title || 'Untitled'
@@ -1290,7 +1304,7 @@ function MobileRowCard({
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
+        'group overflow-hidden rounded-2xl border bg-panel shadow-[var(--shadow-soft)]',
         motion.color,
         selectMode && selected
           ? 'border-sea ring-2 ring-sea/25'
@@ -1314,9 +1328,9 @@ function MobileRowCard({
               No photo
             </div>
           )}
-          {showListing ? (
-            <OpenListingControl url={listingUrl} variant="photo" />
-          ) : null}
+          {dragHandle}
+          {showListing ? <OpenListingControl url={listingUrl} /> : null}
+          <CityBadge place={place} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-3">
           <button
@@ -1342,9 +1356,6 @@ function MobileRowCard({
               <ChevronRight className="h-3.5 w-3.5" aria-hidden />
             </span>
           </button>
-          {showListing ? (
-            <OpenListingControl url={listingUrl} variant="row" />
-          ) : null}
           {canMoveTier && !selectMode ? (
             <MobileTierMoveTrigger onOpen={onRequestMoveTier} />
           ) : null}
