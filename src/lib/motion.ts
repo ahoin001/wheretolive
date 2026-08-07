@@ -15,6 +15,8 @@ export const cssMotion = {
   interactive: 'motion-interactive',
   /** Compact chips / pills used many times a session */
   chip: 'motion-chip',
+  /** Minimal press scale without color transitions */
+  press: 'motion-press',
   /** Overlay scrim (prefer SideDrawer / ConfirmDialog for layered UI) */
   overlay: 'motion-overlay',
   /** Centered dialog content on open */

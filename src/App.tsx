@@ -11,13 +11,30 @@ import { useApp } from './hooks/useApp'
 import { useAuth } from './hooks/useAuth'
 import { useCollaboration } from './hooks/useCollaboration'
 import { canAccessGuide } from './lib/access'
+import { readShareTokenFromPath } from './data/collaboration/share'
 
 const PlacesWorkspace = lazy(async () => {
   const mod = await import('./components/places/PlacesWorkspace')
   return { default: mod.PlacesWorkspace }
 })
 
+const PublicSharePage = lazy(async () => {
+  const mod = await import('./components/places/PublicSharePage')
+  return { default: mod.PublicSharePage }
+})
+
+function useShareToken() {
+  const [token, setToken] = useState(() => readShareTokenFromPath())
+  useEffect(() => {
+    const sync = () => setToken(readShareTokenFromPath())
+    window.addEventListener('popstate', sync)
+    return () => window.removeEventListener('popstate', sync)
+  }, [])
+  return token
+}
+
 export default function App() {
+  const shareToken = useShareToken()
   const auth = useAuth()
   const app = useApp(auth.user?.id ?? null, auth.ready)
   const collab = useCollaboration({
@@ -60,17 +77,38 @@ export default function App() {
   }, [auth.signedIn])
 
   const viewKey = useMemo(() => {
+    if (shareToken) return `share:${shareToken}`
     if (!auth.signedIn) return 'auth'
     if (accountOpen) return 'account'
     if (!guideAllowed || app.ui.mode === 'places') return 'places'
     return app.ui.activeStep
   }, [
+    shareToken,
     auth.signedIn,
     accountOpen,
     guideAllowed,
     app.ui.mode,
     app.ui.activeStep,
   ])
+
+  // Guest share links bypass the auth gate
+  if (shareToken) {
+    return (
+      <ErrorBoundary>
+        <Suspense
+          fallback={
+            <div className="flex min-h-screen items-center justify-center bg-mist text-ink-soft">
+              Opening shared places…
+            </div>
+          }
+        >
+          <PageTransition viewKey={viewKey}>
+            <PublicSharePage token={shareToken} />
+          </PageTransition>
+        </Suspense>
+      </ErrorBoundary>
+    )
+  }
 
   if (!auth.ready) {
     return (
@@ -80,7 +118,7 @@ export default function App() {
     )
   }
 
-  // Auth gate — no guest app surface
+  // Auth gate — no guest app surface (except /s/:token above)
   if (!auth.signedIn) {
     return (
       <ErrorBoundary>

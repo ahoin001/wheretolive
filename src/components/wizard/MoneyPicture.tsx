@@ -73,8 +73,8 @@ export function MoneyPicture({
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  const yAxisWidth = narrow ? 56 : 72
-  const waterfallYWidth = narrow ? 72 : 118
+  const yAxisWidth = narrow ? 56 : 64
+  const waterfallYWidth = narrow ? 72 : 96
 
   const monthly = [
     { name: 'Stay', total: Math.round(finance.stayMonthly), fill: KEEP },
@@ -135,9 +135,14 @@ export function MoneyPicture({
   })()
 
   return (
-    <div className={cn('grid gap-5', compact ? 'lg:grid-cols-1' : 'lg:grid-cols-2')}>
+    <div
+      className={cn(
+        'grid min-w-0 max-w-full gap-5',
+        compact ? 'lg:grid-cols-1' : 'lg:grid-cols-2',
+      )}
+    >
       {hasMonthly ? (
-        <section className="rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)]">
+        <section className="min-w-0 overflow-hidden rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)]">
           <h3 className="font-display text-2xl font-semibold text-ink">
             Monthly housing load
           </h3>
@@ -174,7 +179,7 @@ export function MoneyPicture({
       ) : null}
 
       {hasSale && !compact ? (
-        <section className="rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)]">
+        <section className="min-w-0 overflow-hidden rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)]">
           <h3 className="font-display text-2xl font-semibold text-ink">
             Cash from selling
           </h3>
@@ -223,7 +228,7 @@ export function MoneyPicture({
       ) : null}
 
       {hasMonthly && hasComposition && !compact ? (
-        <section className="rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)] lg:col-span-2">
+        <section className="min-w-0 overflow-hidden rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)] lg:col-span-2">
           <h3 className="font-display text-2xl font-semibold text-ink">
             What’s inside the monthly bill
           </h3>
@@ -275,8 +280,8 @@ export function MoneyPicture({
       ) : null}
 
       {hasMonthly && !compact ? (
-        <section className="rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)] lg:col-span-2">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <section className="min-w-0 overflow-hidden rounded-[1.75rem] border border-line bg-panel p-5 shadow-[var(--shadow-soft)] lg:col-span-2">
+          <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <h3 className="font-display text-2xl font-semibold text-ink">
                 Housing spend over time

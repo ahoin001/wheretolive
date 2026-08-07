@@ -344,3 +344,82 @@ export function filterCitySuggestions(
   }
   return [...starts, ...includes].slice(0, limit)
 }
+
+/** Lowercase street with collapsed space, light punct strip, unit/# normalized. */
+export function normalizeStreetForMatch(street: string): string {
+  let s = collapseSpace(street).toLowerCase()
+  if (!s) return ''
+  s = s.replace(/[.,]/g, ' ')
+  s = collapseSpace(s)
+  s = s.replace(/\b(apartment|apt\.?|unit|suite|ste\.?)\s*#?\s*/gi, '#')
+  s = s.replace(/#\s+/g, '#')
+  return s
+}
+
+function zip5(zip: string): string {
+  const digits = zip.replace(/\D/g, '')
+  return digits.length >= 5 ? digits.slice(0, 5) : ''
+}
+
+type AddressLike = PlaceAddress | {
+  street?: string
+  city?: string
+  state?: string
+  zip?: string
+  location?: string
+}
+
+/**
+ * True when two places likely refer to the same physical address.
+ * Requires a non-empty street match; ZIP / city / state corroborate and
+ * conflict when both sides have values that disagree.
+ */
+export function addressesMatch(a: AddressLike, b: AddressLike): boolean {
+  const aa = resolvePlaceAddress(a)
+  const bb = resolvePlaceAddress(b)
+  const sa = normalizeStreetForMatch(aa.street)
+  const sb = normalizeStreetForMatch(bb.street)
+  if (!sa || !sb || sa !== sb) return false
+
+  const za = zip5(aa.zip)
+  const zb = zip5(bb.zip)
+  if (za && zb) return za === zb
+
+  const ca = cityKey(aa.city)
+  const cb = cityKey(bb.city)
+  if (ca && cb && ca !== cb) return false
+
+  const sta = aa.state.toUpperCase()
+  const stb = bb.state.toUpperCase()
+  if (sta && stb && sta !== stb) return false
+
+  // Same street with no conflicting city/state/zip.
+  return true
+}
+
+/** First place on the list with a matching address, if any. */
+export function findDuplicatePlace<T extends AddressLike & { id?: string }>(
+  places: Iterable<T>,
+  candidate: AddressLike,
+  options?: { excludeId?: string | null },
+): T | null {
+  const excludeId = options?.excludeId ?? null
+  for (const place of places) {
+    if (excludeId && place.id === excludeId) continue
+    if (addressesMatch(place, candidate)) return place
+  }
+  return null
+}
+
+/** Source place ids whose address already appears in `targetPlaces`. */
+export function duplicatePlaceIds(
+  sourcePlaces: Array<AddressLike & { id: string }>,
+  targetPlaces: Iterable<AddressLike>,
+): Set<string> {
+  const target = [...targetPlaces]
+  const dupes = new Set<string>()
+  for (const src of sourcePlaces) {
+    if (findDuplicatePlace(target, src)) dupes.add(src.id)
+  }
+  return dupes
+}

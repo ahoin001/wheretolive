@@ -20,11 +20,11 @@ export function PageTransition({
   const reduce = useReducedMotion()
 
   return (
-    <div className={cn('relative grid w-full', className)}>
+    <div className={cn('relative grid w-full min-w-0 max-w-full', className)}>
       <AnimatePresence initial={false}>
         <motion.div
           key={viewKey}
-          className="col-start-1 row-start-1 w-full"
+          className="col-start-1 row-start-1 w-full min-w-0 max-w-full"
           initial={reduce ? { opacity: 0 } : 'enter'}
           animate={
             reduce ? { opacity: 1, transition: { duration: 0.15 } } : 'center'

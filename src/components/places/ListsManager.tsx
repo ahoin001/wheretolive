@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   FolderPlus,
   Pencil,
@@ -9,6 +9,9 @@ import {
 } from 'lucide-react'
 import type { CollaborationController } from '../../hooks/useCollaboration'
 import { listIsShared } from '../../data/collaboration/types'
+import { getListPlaces } from '../../data/collaboration/api'
+import { duplicatePlaceIds } from '../../domain/places/address'
+import type { SavedPlace } from '../../domain/types'
 import { Button } from '../ui/Button'
 import { Field, TextInput } from '../ui/Field'
 import { cn } from '../../lib/utils'
@@ -287,28 +290,109 @@ export function CopyToListMenu({
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [checking, setChecking] = useState(true)
+  const [dupesByList, setDupesByList] = useState<Record<string, string[]>>({})
 
-  const targets = collab.editableLists.filter(
-    (l) => l.id !== collab.activeListId,
+  const targets = useMemo(
+    () =>
+      collab.editableLists.filter((l) => l.id !== collab.activeListId),
+    [collab.editableLists, collab.activeListId],
   )
+  const targetIds = useMemo(() => targets.map((t) => t.id), [targets])
+
+  const sourcePlaces = useMemo(() => {
+    const byId = new Map(collab.places.map((p) => [p.id, p]))
+    return placeIds
+      .map((id) => byId.get(id))
+      .filter((p): p is SavedPlace => Boolean(p))
+  }, [collab.places, placeIds])
+
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      setChecking(true)
+      setError(null)
+      if (!targetIds.length || !sourcePlaces.length) {
+        if (!cancelled) {
+          setDupesByList({})
+          setChecking(false)
+        }
+        return
+      }
+      try {
+        const entries = await Promise.all(
+          targetIds.map(async (listId) => {
+            const places = await getListPlaces(listId)
+            const dupes = [...duplicatePlaceIds(sourcePlaces, places)]
+            return [listId, dupes] as const
+          }),
+        )
+        if (!cancelled) {
+          setDupesByList(Object.fromEntries(entries))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Could not check for duplicates.',
+          )
+          setDupesByList({})
+        }
+      } finally {
+        if (!cancelled) setChecking(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [targetIds, sourcePlaces])
 
   const copy = async (targetId: string, name: string) => {
+    const dupes = new Set(dupesByList[targetId] ?? [])
+    const toCopy = placeIds.filter((id) => !dupes.has(id))
+    const skipped = placeIds.length - toCopy.length
+
+    if (!toCopy.length) {
+      setError('Already in this list — nothing new to copy.')
+      return
+    }
+
     setBusy(true)
     setError(null)
     try {
-      if (placeIds.length === 1) {
-        await collab.copyPlace(placeIds[0]!, targetId)
-        onDone(`Copied to “${name}”.`)
-      } else {
-        const r = await collab.copyPlaces(placeIds, targetId)
+      if (toCopy.length === 1) {
+        await collab.copyPlace(toCopy[0]!, targetId)
         onDone(
-          r.copied
-            ? `Copied ${r.copied} place${r.copied === 1 ? '' : 's'} to “${name}”.`
-            : 'Nothing was copied.',
+          skipped
+            ? `Copied to “${name}”. Skipped ${skipped} already there.`
+            : `Copied to “${name}”.`,
         )
+      } else {
+        const r = await collab.copyPlaces(toCopy, targetId)
+        const copied = r.copied
+        if (!copied && skipped) {
+          onDone(`Nothing new — all already in “${name}”.`)
+        } else if (skipped) {
+          onDone(
+            `Copied ${copied} to “${name}”. Skipped ${skipped} already there.`,
+          )
+        } else {
+          onDone(
+            copied
+              ? `Copied ${copied} place${copied === 1 ? '' : 's'} to “${name}”.`
+              : 'Nothing was copied.',
+          )
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Copy failed.')
+      const message = err instanceof Error ? err.message : 'Copy failed.'
+      if (/already/i.test(message)) {
+        setError('Already in this list.')
+      } else {
+        setError(message)
+      }
     } finally {
       setBusy(false)
     }
@@ -319,30 +403,61 @@ export function CopyToListMenu({
       <p className="text-sm font-bold text-ink">
         Copy {placeIds.length === 1 ? 'place' : `${placeIds.length} places`} to…
       </p>
+      {checking ? (
+        <p className="mt-2 text-sm text-ink-soft">Checking lists for matches…</p>
+      ) : null}
       {targets.length === 0 ? (
         <p className="mt-2 text-sm text-ink-soft">
           Create another list first (Lists panel), or open a board you can edit.
         </p>
       ) : (
         <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-          {targets.map((list) => (
-            <li key={list.id}>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void copy(list.id, list.name)}
-                className={cn(
-                  'flex w-full items-center justify-between gap-2 rounded-xl border border-line px-3 py-2 text-left text-sm hover:border-sea hover:bg-folio',
-                  motion.chip,
-                )}
-              >
-                <span className="min-w-0 truncate font-bold text-ink">{list.name}</span>
-                <span className="shrink-0 text-xs text-ink-soft">
-                  {listIsShared(list) ? 'Shared' : 'Private'}
-                </span>
-              </button>
-            </li>
-          ))}
+          {targets.map((list) => {
+            const dupes = dupesByList[list.id] ?? []
+            const dupeCount = dupes.length
+            const newCount = placeIds.length - dupeCount
+            const allDupes = !checking && dupeCount > 0 && newCount <= 0
+            const someDupes = !checking && dupeCount > 0 && newCount > 0
+            return (
+              <li key={list.id}>
+                <button
+                  type="button"
+                  disabled={busy || checking || allDupes}
+                  onClick={() => void copy(list.id, list.name)}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left text-sm',
+                    allDupes
+                      ? 'cursor-not-allowed border-line/70 bg-folio/50 text-ink-soft'
+                      : 'border-line hover:border-sea hover:bg-folio',
+                    motion.chip,
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span
+                      className={cn(
+                        'block truncate font-bold',
+                        allDupes ? 'text-ink-soft' : 'text-ink',
+                      )}
+                    >
+                      {list.name}
+                    </span>
+                    {allDupes ? (
+                      <span className="mt-0.5 block text-xs font-semibold text-honey">
+                        Already in this list
+                      </span>
+                    ) : someDupes ? (
+                      <span className="mt-0.5 block text-xs text-ink-soft">
+                        {dupeCount} already there · copy {newCount} new
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 text-xs text-ink-soft">
+                    {listIsShared(list) ? 'Shared' : 'Private'}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
       {error ? (

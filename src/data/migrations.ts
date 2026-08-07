@@ -153,6 +153,10 @@ function normalizePlace(raw: unknown): SavedPlace | null {
     )
       ? (p.tier as PlaceTier)
       : 'maybe',
+    boardOrder:
+      typeof p.boardOrder === 'number' && Number.isFinite(p.boardOrder)
+        ? Math.max(0, Math.floor(p.boardOrder))
+        : 0,
     status: normalizeStatus(p.status),
     favorite: Boolean(p.favorite ?? p.likedByMe),
     likedByMe:

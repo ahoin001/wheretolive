@@ -66,10 +66,10 @@ export function AppShell({
   }, [footerMenuOpen])
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-3 px-4 py-4 md:gap-4 md:px-6 md:py-6">
-      <header className="no-print flex flex-wrap items-center justify-between gap-3 rounded-[1.75rem] border border-line bg-panel/90 px-4 py-3 shadow-[var(--shadow-soft)] backdrop-blur">
-        <div>
-          <p className="font-display text-2xl font-semibold tracking-[-0.02em] text-ink md:text-3xl">
+    <div className="mx-auto flex min-h-screen w-full min-w-0 max-w-7xl flex-col gap-3 px-4 py-4 md:gap-4 md:px-6 md:py-6">
+      <header className="no-print flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-[1.75rem] border border-line bg-panel/90 px-4 py-3 shadow-[var(--shadow-soft)] backdrop-blur">
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-xl font-semibold leading-tight tracking-[-0.02em] text-ink sm:text-2xl md:text-3xl">
             Room for the Next Chapter
           </p>
         </div>
@@ -160,7 +160,7 @@ export function AppShell({
         <aside
           className={cn(
             'no-print rounded-[1.25rem] border border-line bg-folio/90',
-            'flex gap-2 overflow-x-auto px-3 py-2.5 md:grid md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-[1.5rem] md:p-4',
+            'flex min-w-0 gap-2 overflow-x-auto px-3 py-2.5 md:grid md:grid-cols-4 md:gap-3 md:overflow-visible md:rounded-[1.5rem] md:p-4',
           )}
         >
           <Stat
@@ -196,7 +196,7 @@ export function AppShell({
 
       <main
         className={cn(
-          'flex-1',
+          'min-w-0 max-w-full flex-1',
           showGuideChrome &&
             showNav &&
             'pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-0',

@@ -39,7 +39,7 @@ export function AuthPage({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center px-4 py-10 md:px-6">
+    <div className="mx-auto flex min-h-screen w-full min-w-0 max-w-lg flex-col justify-center px-4 py-10 md:px-6">
       <p className="font-display text-3xl font-semibold tracking-[-0.02em] text-ink md:text-4xl">
         Room for the Next Chapter
       </p>

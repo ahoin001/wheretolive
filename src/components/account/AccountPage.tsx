@@ -50,7 +50,7 @@ export function AccountPage({
   }
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-4 py-6 md:px-6 md:py-10">
+    <div className="mx-auto flex min-h-screen w-full min-w-0 max-w-lg flex-col px-4 py-6 md:px-6 md:py-10">
       <Button
         type="button"
         variant="ghost"

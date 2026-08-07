@@ -273,6 +273,11 @@ export interface SavedPlace {
   /** Selected concern chips / custom labels */
   concernTags: string[]
   tier: PlaceTier
+  /**
+   * Left-to-right rank on the tier board (lower = further left).
+   * Reassigned when dragging within or across tiers.
+   */
+  boardOrder: number
   status: PlaceStatus
   /**
    * Liked-by-me (local favorite or personal reaction when cloud).

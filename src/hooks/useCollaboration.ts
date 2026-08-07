@@ -16,6 +16,7 @@ import {
   migrateLocalPlaces,
   removeMember,
   renameList,
+  reorderBoardPlaces,
   respondInvite,
   setPlaceLike,
   sharePlaces,
@@ -407,6 +408,43 @@ export function useCollaboration({
     [cloudActive, replaceLocalPlaces],
   )
 
+  const reorderBoard = useCallback(
+    async (
+      items: { id: string; tier: SavedPlace['tier']; boardOrder: number }[],
+    ) => {
+      if (!items.length) return
+      const now = new Date().toISOString()
+      const applyLocal = (prev: SavedPlace[]) => {
+        const map = new Map(items.map((i) => [i.id, i]))
+        return prev.map((p) => {
+          const u = map.get(p.id)
+          return u
+            ? {
+                ...p,
+                tier: u.tier,
+                boardOrder: u.boardOrder,
+                updatedAt: now,
+              }
+            : p
+        })
+      }
+
+      if (!cloudActive) {
+        replaceLocalPlaces(applyLocal(localPlaces))
+        return
+      }
+
+      // Optimistic UI, then confirm with cloud
+      setPlaces((prev) => {
+        const next = applyLocal(prev)
+        replaceLocalPlaces(next)
+        return next
+      })
+      await reorderBoardPlaces(items)
+    },
+    [cloudActive, localPlaces, replaceLocalPlaces],
+  )
+
   const inviteUser = useCallback(
     async (userId: string, placeIds: string[]) => {
       if (!activeListId) throw new Error('No active list.')
@@ -607,6 +645,7 @@ export function useCollaboration({
     removePlace,
     removePlaces,
     setLiked,
+    reorderBoard,
     inviteUser,
     acceptInvite,
     declineInvite,

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  addressesMatch,
+  duplicatePlaceIds,
+  findDuplicatePlace,
   formatPlaceAddress,
+  normalizeStreetForMatch,
   parseLocationString,
   sanitizeCity,
   sanitizeState,
@@ -69,5 +73,120 @@ describe('sanitize helpers', () => {
         zip: '33029',
       }),
     ).toBe('1 Main St, Miramar, FL 33029')
+  })
+})
+
+describe('addressesMatch', () => {
+  it('matches same street + zip despite unit wording', () => {
+    expect(
+      addressesMatch(
+        {
+          street: '10398 Orange Ct Unit 10398',
+          city: 'Pembroke Pines',
+          state: 'FL',
+          zip: '33026',
+        },
+        {
+          street: '10398 Orange Ct #10398',
+          city: 'Pembroke Pines',
+          state: 'FL',
+          zip: '33026-1234',
+        },
+      ),
+    ).toBe(true)
+  })
+
+  it('matches via legacy location strings', () => {
+    expect(
+      addressesMatch(
+        { location: '1 Main St, Miramar, FL 33029' },
+        {
+          street: '1 Main St',
+          city: 'Miramar',
+          state: 'FL',
+          zip: '33029',
+        },
+      ),
+    ).toBe(true)
+  })
+
+  it('rejects different zips on the same street', () => {
+    expect(
+      addressesMatch(
+        { street: '1 Main St', city: 'Miramar', state: 'FL', zip: '33029' },
+        { street: '1 Main St', city: 'Miramar', state: 'FL', zip: '33025' },
+      ),
+    ).toBe(false)
+  })
+
+  it('rejects different cities when zip is missing', () => {
+    expect(
+      addressesMatch(
+        { street: '1 Main St', city: 'Miramar', state: 'FL', zip: '' },
+        { street: '1 Main St', city: 'Davie', state: 'FL', zip: '' },
+      ),
+    ).toBe(false)
+  })
+
+  it('does not match empty streets', () => {
+    expect(
+      addressesMatch(
+        { street: '', city: 'Miramar', state: 'FL', zip: '33029' },
+        { street: '', city: 'Miramar', state: 'FL', zip: '33029' },
+      ),
+    ).toBe(false)
+  })
+
+  it('normalizes unit prefixes on streets', () => {
+    expect(normalizeStreetForMatch('12 Oak Apt. 3')).toBe('12 oak #3')
+    expect(normalizeStreetForMatch('12 Oak Unit 3')).toBe('12 oak #3')
+  })
+
+  it('finds duplicates and collects source ids', () => {
+    const list = [
+      {
+        id: 'a',
+        street: '9 Palm Dr',
+        city: 'Weston',
+        state: 'FL',
+        zip: '33326',
+      },
+      {
+        id: 'b',
+        street: 'Other',
+        city: 'Weston',
+        state: 'FL',
+        zip: '33326',
+      },
+    ]
+    expect(
+      findDuplicatePlace(list, {
+        street: '9 Palm Dr',
+        city: 'Weston',
+        state: 'FL',
+        zip: '33326',
+      })?.id,
+    ).toBe('a')
+    expect(
+      duplicatePlaceIds(
+        [
+          {
+            id: 'src1',
+            street: '9 Palm Dr',
+            city: 'Weston',
+            state: 'FL',
+            zip: '33326',
+          },
+          {
+            id: 'src2',
+            street: '99 New',
+            city: 'Weston',
+            state: 'FL',
+            zip: '33326',
+          },
+        ],
+        list,
+      ),
+    ).toEqual(new Set(['src1']))
   })
 })

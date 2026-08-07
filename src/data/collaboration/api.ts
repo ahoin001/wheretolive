@@ -3,7 +3,17 @@ import {
   formatPlaceAddress,
   resolvePlaceAddress,
 } from '../../domain/places/address'
-import { requireSupabase } from '../../lib/supabase'
+import { requireSupabase, supabase } from '../../lib/supabase'
+import type {
+  CreatedShareLink,
+  PublicShareRecord,
+  ShareKind,
+  SharedPlaceSnapshot,
+} from './share'
+import {
+  normalizeSharedPlace,
+  toSharedPlaceSnapshot,
+} from './share'
 import type {
   ListMember,
   PlaceListSummary,
@@ -111,6 +121,12 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
     )
       ? (raw.tier as SavedPlace['tier'])
       : 'maybe',
+    boardOrder:
+      typeof raw.boardOrder === 'number' && Number.isFinite(raw.boardOrder)
+        ? Math.max(0, Math.floor(raw.boardOrder))
+        : typeof raw.board_order === 'number' && Number.isFinite(raw.board_order)
+          ? Math.max(0, Math.floor(raw.board_order))
+          : 0,
     status:
       raw.status === 'visited' || raw.status === 'offer' ? raw.status : 'none',
     favorite: likedByMe,
@@ -146,6 +162,7 @@ export function placeToPayload(place: SavedPlace, listId?: string | null) {
     proTags: place.proTags,
     concernTags: place.concernTags,
     tier: place.tier,
+    boardOrder: place.boardOrder ?? 0,
     status: place.status,
     favorite: likedByMe,
     likedByMe,
@@ -395,4 +412,106 @@ export async function updateProfile(fields: {
   if (fields.searchable !== undefined) patch.searchable = fields.searchable
   const { error } = await client.from('profiles').update(patch).eq('id', user.id)
   if (error) throw error
+}
+
+/** Create a guest-readable snapshot link (authenticated). */
+export async function createPlaceShareLink(input: {
+  places: SavedPlace[]
+  title?: string
+  expiresDays?: number | null
+}): Promise<CreatedShareLink> {
+  const client = requireSupabase()
+  const snapshots = input.places.map(toSharedPlaceSnapshot)
+  if (snapshots.length === 0) {
+    throw new Error('Pick at least one place to share.')
+  }
+  const kind: ShareKind = snapshots.length === 1 ? 'place' : 'collection'
+  const { data, error } = await client.rpc('nc_create_place_share', {
+    p_kind: kind,
+    p_title: input.title ?? null,
+    p_places: snapshots,
+    p_expires_days: input.expiresDays ?? null,
+  })
+  if (error) throw error
+  const row = (data ?? {}) as Record<string, unknown>
+  const token = String(row.token ?? '')
+  if (!token) throw new Error('Share link was not created.')
+  return {
+    id: String(row.id ?? ''),
+    token,
+    kind: row.kind === 'collection' ? 'collection' : 'place',
+    path: String(row.path ?? `/s/${token}`),
+  }
+}
+
+/**
+ * Fetch a public share by token.
+ * Uses the anon-capable client (works signed-out).
+ */
+export async function fetchPublicShare(
+  token: string,
+): Promise<PublicShareRecord | null> {
+  const client = supabase
+  if (!client) {
+    throw new Error('Cloud sharing is not configured.')
+  }
+  const { data, error } = await client.rpc('nc_get_public_share', {
+    p_token: token,
+  })
+  if (error) throw error
+  if (!data || typeof data !== 'object') return null
+  const row = data as Record<string, unknown>
+  const payloadRaw = row.payload
+  if (!payloadRaw || typeof payloadRaw !== 'object') return null
+  const payloadObj = payloadRaw as Record<string, unknown>
+  const placesRaw = Array.isArray(payloadObj.places) ? payloadObj.places : []
+  const places: SharedPlaceSnapshot[] = []
+  for (const item of placesRaw) {
+    const snap = normalizeSharedPlace(item)
+    if (snap) places.push(snap)
+  }
+  if (places.length === 0) return null
+  return {
+    token: String(row.token ?? token),
+    kind: row.kind === 'collection' ? 'collection' : 'place',
+    title:
+      typeof row.title === 'string' && row.title
+        ? row.title
+        : typeof payloadObj.title === 'string'
+          ? payloadObj.title
+          : null,
+    createdAt: String(row.createdAt ?? ''),
+    expiresAt:
+      typeof row.expiresAt === 'string' && row.expiresAt ? row.expiresAt : null,
+    payload: {
+      version: typeof payloadObj.version === 'number' ? payloadObj.version : 1,
+      kind: places.length === 1 ? 'place' : 'collection',
+      title:
+        typeof payloadObj.title === 'string' && payloadObj.title
+          ? payloadObj.title
+          : null,
+      places,
+    },
+  }
+}
+
+export async function revokePlaceShareLink(token: string): Promise<boolean> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_revoke_place_share', {
+    p_token: token,
+  })
+  if (error) throw error
+  return Boolean((data as { revoked?: boolean } | null)?.revoked)
+}
+
+/** Batch update tier + boardOrder for drag-reorder on the board. */
+export async function reorderBoardPlaces(
+  items: { id: string; tier: SavedPlace['tier']; boardOrder: number }[],
+): Promise<number> {
+  const client = requireSupabase()
+  const { data, error } = await client.rpc('nc_reorder_board_places', {
+    p_items: items,
+  })
+  if (error) throw error
+  return Number((data as { updated?: number } | null)?.updated ?? 0)
 }
