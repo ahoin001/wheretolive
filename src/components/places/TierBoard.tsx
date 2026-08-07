@@ -1187,17 +1187,21 @@ function BoardTile({
       )}
     >
       {selectMode ? (
-        <span
+        <button
+          type="button"
+          onClick={onActivate}
           className={cn(
-            'pointer-events-none absolute left-2 top-2 z-10 flex h-6 w-6 items-center justify-center rounded-full border shadow-sm',
+            'absolute left-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full border shadow-sm',
+            motion.press,
             selected
               ? 'border-sea bg-sea text-white'
-              : 'border-line bg-panel/95 text-transparent',
+              : 'border-line bg-panel/95 text-transparent hover:border-sea hover:text-sea/40',
           )}
-          aria-hidden
+          aria-pressed={selected}
+          aria-label={selected ? 'Deselect place' : 'Select place'}
         >
           <Check className="h-3.5 w-3.5" strokeWidth={3} />
-        </span>
+        </button>
       ) : null}
 
       <div
@@ -1207,21 +1211,49 @@ function BoardTile({
         )}
       >
         {images[0] ? (
-          <OpenableImage
-            images={images}
-            index={0}
-            title={title}
-            onOpen={onOpenLightbox}
-            showCue={density === 'desktop' && !dragging}
-            className="absolute inset-0 h-full w-full"
-            imgClassName="h-full w-full object-cover"
-          />
+          selectMode ? (
+            <button
+              type="button"
+              onClick={onActivate}
+              className="absolute inset-0 h-full w-full"
+              aria-label={
+                selected ? `Deselect ${title}` : `Select ${title}`
+              }
+            >
+              <img
+                src={images[0]}
+                alt=""
+                className="h-full w-full object-cover"
+                loading="lazy"
+                referrerPolicy="no-referrer"
+              />
+            </button>
+          ) : (
+            <OpenableImage
+              images={images}
+              index={0}
+              title={title}
+              onOpen={onOpenLightbox}
+              showCue={density === 'desktop' && !dragging}
+              className="absolute inset-0 h-full w-full"
+              imgClassName="h-full w-full object-cover"
+            />
+          )
+        ) : selectMode ? (
+          <button
+            type="button"
+            onClick={onActivate}
+            className="flex h-full w-full items-center justify-center px-2 text-center text-xs font-bold text-ink-soft"
+            aria-label={selected ? `Deselect ${title}` : `Select ${title}`}
+          >
+            No photo
+          </button>
         ) : (
           <div className="flex h-full items-center justify-center px-2 text-center text-xs font-bold text-ink-soft">
             No photo
           </div>
         )}
-        {!dragging ? dragHandle : null}
+        {!dragging && !selectMode ? dragHandle : null}
         {showListing ? <OpenListingControl url={listingUrl} /> : null}
         {!dragging ? <CityBadge place={place} /> : null}
       </div>
@@ -1314,21 +1346,66 @@ function MobileRowCard({
       <div className="flex min-h-[7.25rem]">
         <div className="relative w-[42%] min-w-[7.5rem] max-w-[11rem] shrink-0 self-stretch bg-folio">
           {images[0] ? (
-            <OpenableImage
-              images={images}
-              index={0}
-              title={title}
-              onOpen={onOpenLightbox}
-              showCue
-              className="absolute inset-0 h-full w-full"
-              imgClassName="h-full w-full object-cover"
-            />
+            selectMode ? (
+              <button
+                type="button"
+                onClick={onToggleSelect}
+                className="absolute inset-0 h-full w-full"
+                aria-label={
+                  selected ? `Deselect ${title}` : `Select ${title}`
+                }
+              >
+                <img
+                  src={images[0]}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+              </button>
+            ) : (
+              <OpenableImage
+                images={images}
+                index={0}
+                title={title}
+                onOpen={onOpenLightbox}
+                showCue
+                className="absolute inset-0 h-full w-full"
+                imgClassName="h-full w-full object-cover"
+              />
+            )
+          ) : selectMode ? (
+            <button
+              type="button"
+              onClick={onToggleSelect}
+              className="flex h-full min-h-[7.25rem] w-full items-center justify-center px-2 text-center text-xs text-ink-soft"
+              aria-label={selected ? `Deselect ${title}` : `Select ${title}`}
+            >
+              No photo
+            </button>
           ) : (
             <div className="flex h-full min-h-[7.25rem] items-center justify-center px-2 text-center text-xs text-ink-soft">
               No photo
             </div>
           )}
-          {dragHandle}
+          {selectMode ? (
+            <button
+              type="button"
+              onClick={onToggleSelect}
+              className={cn(
+                'absolute left-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full border shadow-sm',
+                motion.press,
+                selected
+                  ? 'border-sea bg-sea text-white'
+                  : 'border-line bg-panel/95 text-transparent hover:border-sea hover:text-sea/40',
+              )}
+              aria-pressed={selected}
+              aria-label={selected ? 'Deselect place' : 'Select place'}
+            >
+              <Check className="h-3.5 w-3.5" strokeWidth={3} />
+            </button>
+          ) : null}
+          {!selectMode ? dragHandle : null}
           {showListing ? <OpenListingControl url={listingUrl} /> : null}
           <CityBadge place={place} />
         </div>
