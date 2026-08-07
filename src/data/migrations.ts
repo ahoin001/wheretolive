@@ -2,6 +2,7 @@ import {
   DATA_VERSION,
   type AppData,
   type PetsPolicy,
+  type PlaceHomeType,
   type PlaceListingKind,
   type PlaceStatus,
   type PlaceTier,
@@ -95,6 +96,14 @@ function normalizePlace(raw: unknown): SavedPlace | null {
         ? 'buy'
         : 'rent'
 
+  const homeType: PlaceHomeType | null =
+    p.homeType === 'apartment' ||
+    p.homeType === 'condo' ||
+    p.homeType === 'single_family' ||
+    p.homeType === 'townhome'
+      ? p.homeType
+      : null
+
   return {
     id: typeof p.id === 'string' ? p.id : crypto.randomUUID(),
     createdAt: typeof p.createdAt === 'string' ? p.createdAt : now,
@@ -102,6 +111,7 @@ function normalizePlace(raw: unknown): SavedPlace | null {
     title: typeof p.title === 'string' ? p.title : '',
     url: typeof p.url === 'string' ? p.url : '',
     listingKind,
+    homeType,
     price:
       listingKind === 'buy' && p.price != null && p.price !== ''
         ? Number(p.price)

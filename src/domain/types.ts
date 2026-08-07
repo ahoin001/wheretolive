@@ -53,8 +53,25 @@ export type WizardStepId = 'stay' | 'move' | 'picture'
 export type PlaceTier = 'dream' | 'strong' | 'maybe' | 'pass'
 export type PlaceStatus = 'none' | 'visited' | 'offer'
 export type PlaceListingKind = 'rent' | 'buy'
+/** Dwelling style for filters and the place form */
+export type PlaceHomeType =
+  | 'apartment'
+  | 'condo'
+  | 'single_family'
+  | 'townhome'
 /** Whether pets are welcome at this place */
 export type PetsPolicy = 'yes' | 'no' | 'limited'
+
+/** Alphabetical labels for home type (form + filter options after “Any”) */
+export const PLACE_HOME_TYPE_OPTIONS: {
+  value: PlaceHomeType
+  label: string
+}[] = [
+  { value: 'apartment', label: 'Apartment' },
+  { value: 'condo', label: 'Condo' },
+  { value: 'single_family', label: 'Single Family' },
+  { value: 'townhome', label: 'Townhome' },
+]
 
 export interface OwnerProfile {
   label: string
@@ -205,6 +222,8 @@ export interface SavedPlace {
   title: string
   url: string
   listingKind: PlaceListingKind
+  /** Apartment / condo / townhome / single family — optional */
+  homeType: PlaceHomeType | null
   /** Purchase list price — used when listingKind is buy */
   price: number | null
   /** Monthly rent when listingKind is rent; null for buy listings */

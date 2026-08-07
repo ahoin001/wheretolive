@@ -71,6 +71,13 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
     title: String(raw.title ?? ''),
     url: String(raw.url ?? ''),
     listingKind: raw.listingKind === 'buy' ? 'buy' : 'rent',
+    homeType:
+      raw.homeType === 'apartment' ||
+      raw.homeType === 'condo' ||
+      raw.homeType === 'single_family' ||
+      raw.homeType === 'townhome'
+        ? raw.homeType
+        : null,
     price: raw.price == null || raw.price === '' ? null : Number(raw.price),
     monthlyEstimate:
       raw.monthlyEstimate == null || raw.monthlyEstimate === ''
@@ -122,6 +129,7 @@ export function placeToPayload(place: SavedPlace, listId?: string | null) {
     title: place.title,
     url: place.url,
     listingKind: place.listingKind,
+    homeType: place.homeType,
     price: place.price,
     monthlyEstimate: place.monthlyEstimate,
     location: formatPlaceAddress(addr) || place.location,

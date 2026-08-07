@@ -23,11 +23,13 @@ import type { AuthController } from '../../hooks/useAuth'
 import type { CollaborationController } from '../../hooks/useCollaboration'
 import type {
   PetsPolicy,
+  PlaceHomeType,
   PlaceListingKind,
   PlaceStatus,
   PlaceTier,
   SavedPlace,
 } from '../../domain/types'
+import { PLACE_HOME_TYPE_OPTIONS } from '../../domain/types'
 import {
   cityKey,
   formatPlaceAddress,
@@ -119,6 +121,10 @@ function allowsPets(place: Pick<SavedPlace, 'pets'>): boolean {
 type PetsFilter = 'allowed' | 'none' | 'all'
 const DEFAULT_PETS_FILTER: PetsFilter = 'all'
 
+/** Home-type filter; options after Any are alphabetical via PLACE_HOME_TYPE_OPTIONS */
+type HomeTypeFilter = 'all' | PlaceHomeType
+const DEFAULT_HOME_TYPE_FILTER: HomeTypeFilter = 'all'
+
 function matchesPetsFilter(
   place: Pick<SavedPlace, 'pets'>,
   filter: PetsFilter,
@@ -126,6 +132,14 @@ function matchesPetsFilter(
   if (filter === 'all') return true
   if (filter === 'allowed') return allowsPets(place)
   return !allowsPets(place)
+}
+
+function matchesHomeTypeFilter(
+  place: Pick<SavedPlace, 'homeType'>,
+  filter: HomeTypeFilter,
+): boolean {
+  if (filter === 'all') return true
+  return place.homeType === filter
 }
 
 function PetsFilterControl({
@@ -365,6 +379,7 @@ const emptyForm = (): PlaceForm => ({
   title: '',
   url: '',
   listingKind: 'rent',
+  homeType: null,
   price: null,
   monthlyEstimate: null,
   street: '',
@@ -405,6 +420,13 @@ function formFromPlace(place: SavedPlace): PlaceForm {
     ...resolved,
     location: formatPlaceAddress(resolved),
     listingKind: rest.listingKind ?? 'rent',
+    homeType:
+      rest.homeType === 'apartment' ||
+      rest.homeType === 'condo' ||
+      rest.homeType === 'single_family' ||
+      rest.homeType === 'townhome'
+        ? rest.homeType
+        : null,
     pets: rest.pets === 'yes' || rest.pets === 'limited' ? rest.pets : 'no',
     petsNote: rest.petsNote ?? '',
     proTags: rest.proTags ?? [],
@@ -564,12 +586,14 @@ type ListSort = 'recent' | 'liked' | 'monthly_asc' | 'monthly_desc'
 function countActiveFilters(
   listSort: ListSort,
   petsFilter: PetsFilter,
+  homeTypeFilter: HomeTypeFilter,
   mutualOnly: boolean,
   cityFilterActive: boolean,
 ): number {
   return (
     (listSort !== 'recent' ? 1 : 0) +
     (petsFilter !== 'all' ? 1 : 0) +
+    (homeTypeFilter !== 'all' ? 1 : 0) +
     (mutualOnly ? 1 : 0) +
     (cityFilterActive ? 1 : 0)
   )
@@ -618,11 +642,13 @@ function sortPlaces(
   places: SavedPlace[],
   sort: ListSort,
   petsFilter: PetsFilter,
+  homeTypeFilter: HomeTypeFilter,
   cityKeys: string[],
   mutualOnly: boolean,
 ): SavedPlace[] {
   let next = places.filter((p) => {
     if (!matchesPetsFilter(p, petsFilter)) return false
+    if (!matchesHomeTypeFilter(p, homeTypeFilter)) return false
     if (!placeMatchesCities(p, cityKeys)) return false
     if (mutualOnly && !isMutualLike(p)) return false
     return true
@@ -677,6 +703,9 @@ export function PlacesWorkspace({
   const [formOpen, setFormOpen] = useState(false)
   const [listSort, setListSort] = useState<ListSort>('recent')
   const [petsFilter, setPetsFilter] = useState<PetsFilter>(DEFAULT_PETS_FILTER)
+  const [homeTypeFilter, setHomeTypeFilter] = useState<HomeTypeFilter>(
+    DEFAULT_HOME_TYPE_FILTER,
+  )
   const [mutualOnly, setMutualOnly] = useState(false)
   const [cityKeys, setCityKeys] = useState<string[]>([])
   const [selectMode, setSelectMode] = useState(false)
@@ -813,24 +842,45 @@ export function PlacesWorkspace({
   }, [cityKeys, availableCities])
 
   const listPlaces = useMemo(() => {
-    return sortPlaces(allPlaces, listSort, petsFilter, activeCityKeys, mutualOnly)
-  }, [allPlaces, listSort, petsFilter, activeCityKeys, mutualOnly])
+    return sortPlaces(
+      allPlaces,
+      listSort,
+      petsFilter,
+      homeTypeFilter,
+      activeCityKeys,
+      mutualOnly,
+    )
+  }, [
+    allPlaces,
+    listSort,
+    petsFilter,
+    homeTypeFilter,
+    activeCityKeys,
+    mutualOnly,
+  ])
 
   const boardPlaces = useMemo(() => {
-    let base = allPlaces.filter((p) => matchesPetsFilter(p, petsFilter))
+    let base = allPlaces.filter(
+      (p) =>
+        matchesPetsFilter(p, petsFilter) &&
+        matchesHomeTypeFilter(p, homeTypeFilter),
+    )
     if (mutualOnly) base = base.filter(isMutualLike)
     if (activeCityKeys.length) {
       base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
     }
     return [...base].sort(sortByRecentlyAdded)
-  }, [allPlaces, petsFilter, mutualOnly, activeCityKeys])
+  }, [allPlaces, petsFilter, homeTypeFilter, mutualOnly, activeCityKeys])
 
   const cityFilterActive = activeCityKeys.length > 0
   const petsFilterActive = petsFilter !== 'all'
-  const hasActiveFilters = petsFilterActive || mutualOnly || cityFilterActive
+  const homeTypeFilterActive = homeTypeFilter !== 'all'
+  const hasActiveFilters =
+    petsFilterActive || homeTypeFilterActive || mutualOnly || cityFilterActive
   const activeFilterCount = countActiveFilters(
     listSort,
     petsFilter,
+    homeTypeFilter,
     mutualOnly,
     cityFilterActive,
   )
@@ -838,6 +888,7 @@ export function PlacesWorkspace({
   const clearAllFilters = () => {
     setListSort('recent')
     setPetsFilter('all')
+    setHomeTypeFilter('all')
     setMutualOnly(false)
     setCityKeys([])
   }
@@ -993,6 +1044,26 @@ export function PlacesWorkspace({
           ) : null}
         </div>
       </div>
+
+      <label className="flex min-w-0 flex-col gap-1.5 md:min-w-[11rem]">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+          Home type
+        </span>
+        <select
+          value={homeTypeFilter}
+          onChange={(e) =>
+            setHomeTypeFilter(e.target.value as HomeTypeFilter)
+          }
+          className="h-10 w-full rounded-xl border border-line bg-panel px-2.5 text-sm font-bold text-ink md:h-8 md:rounded-lg"
+        >
+          <option value="all">Any</option>
+          {PLACE_HOME_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {availableCities.length > 0 ? (
         <div className="flex min-w-0 flex-col gap-1.5 md:min-w-[10rem]">
@@ -2066,6 +2137,32 @@ export function PlacesWorkspace({
                         }
                         columns={2}
                       />
+                      <Field label="Home type" className="mt-4">
+                        <select
+                          value={form.homeType ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setForm((f) => ({
+                              ...f,
+                              homeType:
+                                v === 'apartment' ||
+                                v === 'condo' ||
+                                v === 'single_family' ||
+                                v === 'townhome'
+                                  ? v
+                                  : null,
+                            }))
+                          }}
+                          className="h-12 w-full rounded-xl border border-line bg-panel px-3 text-base font-bold text-ink"
+                        >
+                          <option value="">Select…</option>
+                          {PLACE_HOME_TYPE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
                     </FormSection>
 
                     {/* Basics */}
