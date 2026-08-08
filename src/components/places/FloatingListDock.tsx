@@ -11,11 +11,14 @@ export function FloatingListDock({
   open,
   children,
   className,
+  layout = 'row',
   'aria-label': ariaLabel = 'List actions',
 }: {
   open: boolean
   children: ReactNode
   className?: string
+  /** `stack` = column (tier chips above actions). `row` = classic wrap toolbar. */
+  layout?: 'row' | 'stack'
   'aria-label'?: string
 }) {
   return (
@@ -36,7 +39,10 @@ export function FloatingListDock({
         >
           <div
             className={cn(
-              'pointer-events-auto flex w-full max-w-xl min-w-0 flex-wrap items-center gap-1.5 rounded-2xl border border-line bg-panel/95 px-2.5 py-2 shadow-[var(--shadow-lift)] backdrop-blur-md sm:gap-2 sm:px-3 sm:py-2.5',
+              'pointer-events-auto w-full max-w-xl min-w-0 rounded-2xl border border-line bg-panel/95 px-2.5 py-2 shadow-[var(--shadow-lift)] backdrop-blur-md sm:px-3 sm:py-2.5',
+              layout === 'stack'
+                ? 'flex flex-col gap-2'
+                : 'flex flex-wrap items-center gap-1.5 sm:gap-2',
             )}
           >
             {children}

@@ -409,6 +409,8 @@ export function TierBoard({
               placesByTier={overviewPlacesByTier}
               selectedIds={selectedIds}
               selectMode={selectMode}
+              activeTier={mobileTier}
+              onActiveTierChange={setMobileTier}
               onToggleSelect={onToggleSelect}
               onEdit={onEdit}
             />

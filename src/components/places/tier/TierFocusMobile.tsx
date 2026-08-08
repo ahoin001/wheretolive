@@ -7,6 +7,7 @@ import {
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
 import { tweenPanel, easeSnappy } from '../../../lib/motionPresets'
 import { cn } from '../../../lib/utils'
+import { motion } from '../../../lib/motion'
 import { TIERS, TIER_META } from './tierMeta'
 import {
   MobileTierChip,
@@ -58,10 +59,17 @@ export function TierFocusMobile({
   const mobileDisplayIds = mobilePlaces.map((p) => p.id)
   const mobileReview = reviews[mobileTier]
   const mobileReviewOn = isTierReviewActive(mobileReview)
+  const meta = TIER_META[mobileTier]
 
   return (
     <div>
-      <div className="sticky top-0 z-20 -mx-1 mb-3 bg-mist/90 px-1 py-2 backdrop-blur-md">
+      <div
+        className={cn(
+          'sticky top-0 z-20 -mx-1 mb-3 overflow-hidden rounded-2xl border border-line/70 px-1.5 py-2 backdrop-blur-md',
+          meta.wash,
+          motion.color,
+        )}
+      >
         <div
           role="tablist"
           aria-label="Place tiers"
@@ -70,14 +78,14 @@ export function TierFocusMobile({
           {TIERS.map((tier) => {
             const count = items[tier].length
             const active = mobileTier === tier
-            const meta = TIER_META[tier]
+            const chipMeta = TIER_META[tier]
             return (
               <MobileTierChip
                 key={tier}
                 tier={tier}
                 active={active}
                 count={count}
-                meta={meta}
+                meta={chipMeta}
                 droppable={canDrag}
                 onSelect={() => {
                   if (activeIdPresent) return
@@ -106,10 +114,21 @@ export function TierFocusMobile({
             y: -4,
             transition: { duration: 0.14, ease: easeSnappy },
           }}
+          className={cn(
+            'relative overflow-hidden rounded-2xl border border-line/80 px-2.5 py-3',
+            meta.wash,
+          )}
         >
-          <div className="mb-2.5 flex items-baseline justify-between gap-2 px-0.5">
-            <h3 className="font-display text-lg font-semibold text-ink">
-              {TIER_META[mobileTier].label}
+          <span
+            className={cn(
+              'absolute inset-y-3 left-0 w-1 rounded-r-full',
+              meta.accentBar,
+            )}
+            aria-hidden
+          />
+          <div className="mb-2.5 flex items-baseline justify-between gap-2 pl-2">
+            <h3 className={cn('font-display text-lg font-semibold', meta.ink)}>
+              {meta.label}
             </h3>
             <span className="text-xs font-bold text-ink-soft">
               {mobileBoardIds.length === 0
@@ -136,7 +155,7 @@ export function TierFocusMobile({
           <div
             className={cn(
               mobilePlaces.length === 0 &&
-                'rounded-2xl border border-dashed border-line bg-folio/50 px-4 py-10 text-center',
+                'rounded-2xl border border-dashed border-line/80 bg-panel/55 px-4 py-10 text-center',
             )}
           >
             <SortableContext
