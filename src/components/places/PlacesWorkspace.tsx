@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+﻿import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
   Check,
   CheckSquare,
@@ -36,7 +36,6 @@ import {
 } from '../../domain/types'
 import {
   addressesMatch,
-  cityKey,
   findDuplicatePlace,
   formatPlaceAddress,
   parseLocationString,
@@ -52,6 +51,29 @@ import {
   matchesAddedFilter,
   type AddedFilter,
 } from '../../domain/places/addedDate'
+import {
+  DEFAULT_HOME_TYPE_FILTER,
+  DEFAULT_PETS_FILTER,
+  DEFAULT_SQFT_FILTER,
+  citiesFromPlaces,
+  countActiveFilters,
+  idsInTierDisplayOrder,
+  isLikedByMe,
+  isMutualLike,
+  matchesHomeTypeFilter,
+  matchesPetsFilter,
+  matchesSqftFilter,
+  placeImages,
+  placeMatchesCities,
+  placesInIdOrder,
+  sortByRecentlyAdded,
+  sortPlaces,
+  type HomeTypeFilter,
+  type ListSort,
+  type PetsFilter,
+  type SqftFilter,
+} from '../../domain/places/filtering'
+import { likedByPeople, swatchForUser, LIKER_SWATCHES } from '../../domain/places/likes'
 import { formatMoney } from '../../domain/finance/calculations'
 import { AnimatePresence } from 'motion/react'
 import { motion } from '../../lib/motion'
@@ -66,7 +88,16 @@ import { CurrencyInput, Field, NumberInput, TextInput, TextTextarea } from '../u
 import { ImageLightbox, OpenableImage } from './ImageLightbox'
 import { PlacePhotoEditor } from './PlacePhotoEditor'
 import { ListsManager, CopyToListMenu } from './ListsManager'
-import { FloatingListDock } from './FloatingListDock'
+import {
+  EmptyPlaces,
+  PetsBadge,
+  PlaceCard,
+  TagRow,
+  primaryCostLabel,
+} from './PlaceCard'
+import { ChipPicker, FormSection } from './PlaceEditor'
+import { CityFilterMenu, PetsFilterControl } from './PlaceFilters'
+import { SelectionDock, SelectionDockSpacer } from './SelectionDock'
 import { PendingInvitesBanner, ShareSheet } from './ShareSheet'
 import { PlaceShareSheet } from './PlaceShareSheet'
 import { AddedFilterMenu } from './AddedFilterMenu'
@@ -90,41 +121,6 @@ const TIER_LABEL: Record<PlaceTier, string> = {
   strong: 'Strong yes',
   maybe: 'Maybe',
   pass: 'Pass',
-}
-
-/** Resolve places in the exact order of `ids` (selection / share order). */
-function placesInIdOrder(
-  places: Iterable<SavedPlace>,
-  ids: string[],
-): SavedPlace[] {
-  const byId = new Map<string, SavedPlace>()
-  for (const place of places) byId.set(place.id, place)
-  const ordered: SavedPlace[] = []
-  for (const id of ids) {
-    const place = byId.get(id)
-    if (place) ordered.push(place)
-  }
-  return ordered
-}
-
-/** Tier board left→right / top→bottom order for “select all shown”. */
-function idsInTierDisplayOrder(places: SavedPlace[]): string[] {
-  const buckets: Record<PlaceTier, SavedPlace[]> = {
-    dream: [],
-    strong: [],
-    maybe: [],
-    pass: [],
-  }
-  for (const place of places) {
-    const tier = buckets[place.tier] ? place.tier : 'maybe'
-    buckets[tier].push(place)
-  }
-  for (const tier of TIERS) {
-    buckets[tier].sort(
-      (a, b) => (a.boardOrder ?? 0) - (b.boardOrder ?? 0),
-    )
-  }
-  return TIERS.flatMap((tier) => buckets[tier].map((p) => p.id))
 }
 
 const PRO_SUGGESTIONS = [
@@ -173,282 +169,6 @@ const STATUS_LABEL: Record<PlaceStatus, string> = {
   none: 'Not marked',
   visited: 'Visited',
   offer: 'Offer',
-}
-
-function allowsPets(place: Pick<SavedPlace, 'pets'>): boolean {
-  return place.pets === 'yes' || place.pets === 'limited'
-}
-
-/** List filter: show every place until the user narrows by pets. */
-type PetsFilter = 'allowed' | 'none' | 'all'
-const DEFAULT_PETS_FILTER: PetsFilter = 'all'
-
-/** Home-type filter; options after Any are alphabetical via PLACE_HOME_TYPE_OPTIONS */
-type HomeTypeFilter = 'all' | PlaceHomeType
-const DEFAULT_HOME_TYPE_FILTER: HomeTypeFilter = 'all'
-
-function matchesPetsFilter(
-  place: Pick<SavedPlace, 'pets'>,
-  filter: PetsFilter,
-): boolean {
-  if (filter === 'all') return true
-  if (filter === 'allowed') return allowsPets(place)
-  return !allowsPets(place)
-}
-
-function matchesHomeTypeFilter(
-  place: Pick<SavedPlace, 'homeType'>,
-  filter: HomeTypeFilter,
-): boolean {
-  if (filter === 'all') return true
-  return place.homeType === filter
-}
-
-/** Sqft band filter; `all` or a PLACE_SQFT_FILTER_OPTIONS value */
-type SqftFilter = 'all' | string
-const DEFAULT_SQFT_FILTER: SqftFilter = 'all'
-
-function matchesSqftFilter(
-  place: Pick<SavedPlace, 'sqft'>,
-  filter: SqftFilter,
-): boolean {
-  if (filter === 'all') return true
-  const band = PLACE_SQFT_FILTER_OPTIONS.find((o) => o.value === filter)
-  if (!band || place.sqft == null || place.sqft <= 0) return false
-  if (place.sqft < band.min) return false
-  if (band.max != null && place.sqft >= band.max) return false
-  return true
-}
-
-function PetsFilterControl({
-  value,
-  onChange,
-  size = 'default',
-}: {
-  value: PetsFilter
-  onChange: (value: PetsFilter) => void
-  size?: 'default' | 'compact'
-}) {
-  const options: { value: PetsFilter; label: string }[] = [
-    { value: 'allowed', label: 'Pets OK' },
-    { value: 'none', label: 'No pets' },
-    { value: 'all', label: 'All' },
-  ]
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Pets"
-      className={cn(
-        'inline-flex max-w-full flex-wrap rounded-full border border-line bg-panel p-0.5',
-        size === 'compact' && 'scale-[0.98]',
-      )}
-    >
-      {options.map((option) => {
-        const selected = option.value === value
-        return (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onChange(option.value)}
-            className={cn(
-              size === 'compact'
-                ? 'min-h-9 px-2.5 text-xs'
-                : 'min-h-11 px-3.5 text-sm',
-              'rounded-full font-bold',
-              motion.chip,
-              selected
-                ? 'bg-sea text-white shadow-[var(--shadow-soft)]'
-                : 'text-ink-soft hover:bg-folio hover:text-ink',
-            )}
-          >
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-/** Compact multi-select city filter (dropdown) — keeps filter bar one row. */
-function CityFilterMenu({
-  cities,
-  selectedKeys,
-  onChange,
-  className,
-}: {
-  cities: { key: string; label: string; count: number }[]
-  selectedKeys: string[]
-  onChange: (keys: string[]) => void
-  className?: string
-}) {
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null)
-  const known = useMemo(() => new Set(cities.map((c) => c.key)), [cities])
-  const active = useMemo(
-    () => selectedKeys.filter((k) => known.has(k)),
-    [selectedKeys, known],
-  )
-
-  useEffect(() => {
-    if (!open) return
-    const place = () => {
-      const el = buttonRef.current
-      if (!el) return
-      const r = el.getBoundingClientRect()
-      const menuH = 224
-      const spaceBelow = window.innerHeight - r.bottom
-      const openUp = spaceBelow < menuH && r.top > spaceBelow
-      setMenuStyle({
-        position: 'fixed',
-        left: Math.min(r.left, window.innerWidth - 288),
-        width: Math.max(r.width, 224),
-        maxHeight: menuH,
-        zIndex: 90,
-        ...(openUp
-          ? { bottom: window.innerHeight - r.top + 6, top: 'auto' }
-          : { top: r.bottom + 6, bottom: 'auto' }),
-      })
-    }
-    place()
-    window.addEventListener('resize', place)
-    window.addEventListener('scroll', place, true)
-    return () => {
-      window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
-    }
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDoc = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  if (cities.length === 0) return null
-
-  const summary =
-    active.length === 0
-      ? 'All cities'
-      : active.length === 1
-        ? (cities.find((c) => c.key === active[0])?.label ?? '1 city')
-        : `${active.length} cities`
-
-  const toggle = (key: string) => {
-    if (active.includes(key)) {
-      onChange(active.filter((k) => k !== key))
-    } else {
-      onChange([...active, key])
-    }
-  }
-
-  return (
-    <div ref={rootRef} className={cn('relative min-w-0', className)}>
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex h-10 w-full min-w-0 max-w-full items-center gap-1.5 rounded-xl border bg-panel px-2.5 text-left text-sm font-bold text-ink md:h-8 md:max-w-[13rem] md:rounded-lg',
-          motion.chip,
-          active.length > 0
-            ? 'border-sea bg-sea/5 text-sea-deep'
-            : 'border-line hover:border-sea',
-        )}
-      >
-        <span className="min-w-0 flex-1 truncate">{summary}</span>
-        <ChevronDown
-          className={cn(
-            'h-3.5 w-3.5 shrink-0 text-ink-soft',
-            motion.transform,
-            open && 'rotate-180',
-          )}
-        />
-      </button>
-
-      {open && menuStyle ? (
-        <div
-          role="listbox"
-          aria-multiselectable
-          aria-label="Filter by city"
-          style={menuStyle}
-          className="overflow-y-auto rounded-xl border border-line bg-panel py-1 shadow-[var(--shadow-lift)]"
-        >
-          <button
-            type="button"
-            role="option"
-            aria-selected={active.length === 0}
-            onClick={() => {
-              onChange([])
-              setOpen(false)
-            }}
-            className={cn(
-              'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold hover:bg-folio',
-              active.length === 0 ? 'text-sea-deep' : 'text-ink',
-            )}
-          >
-            <span
-              className={cn(
-                'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                active.length === 0
-                  ? 'border-sea bg-sea text-white'
-                  : 'border-line bg-panel',
-              )}
-            >
-              {active.length === 0 ? <Check className="h-3 w-3" /> : null}
-            </span>
-            All cities
-          </button>
-          {cities.map((city) => {
-            const on = active.includes(city.key)
-            return (
-              <button
-                key={city.key}
-                type="button"
-                role="option"
-                aria-selected={on}
-                onClick={() => toggle(city.key)}
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold hover:bg-folio',
-                  on ? 'text-sea-deep' : 'text-ink',
-                )}
-              >
-                <span
-                  className={cn(
-                    'flex h-4 w-4 shrink-0 items-center justify-center rounded border',
-                    on
-                      ? 'border-sea bg-sea text-white'
-                      : 'border-line bg-panel',
-                  )}
-                >
-                  {on ? <Check className="h-3 w-3" /> : null}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{city.label}</span>
-                <span className="tabular-nums text-xs text-ink-soft">
-                  {city.count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      ) : null}
-    </div>
-  )
 }
 
 type PlaceForm = Omit<SavedPlace, 'id' | 'createdAt' | 'updatedAt'>
@@ -521,261 +241,6 @@ function formFromPlace(place: SavedPlace): PlaceForm {
   }
 }
 
-function placeImages(place: SavedPlace): string[] {
-  return Array.isArray(place.images) ? place.images.filter(Boolean) : []
-}
-
-function isLikedByMe(place: SavedPlace): boolean {
-  return Boolean(place.likedByMe ?? place.favorite)
-}
-
-function isMutualLike(place: SavedPlace): boolean {
-  const ids = place.likedByUserIds ?? place.likedBy?.map((l) => l.userId) ?? []
-  return ids.length >= 2
-}
-
-function ms(iso: string | null | undefined): number {
-  if (!iso) return 0
-  const n = Date.parse(iso)
-  return Number.isFinite(n) ? n : 0
-}
-
-/** Newest place first (default list order — ignores likes). */
-function sortByRecentlyAdded(a: SavedPlace, b: SavedPlace): number {
-  return ms(b.createdAt) - ms(a.createdAt) || ms(b.updatedAt) - ms(a.updatedAt)
-}
-
-/**
- * Most recent heart wins. Shared boards use the latest member like;
- * solo boards use the current user’s likedAt.
- */
-function lastLikedMs(place: SavedPlace): number {
-  if (place.likedBy?.length) {
-    let best = 0
-    for (const liker of place.likedBy) {
-      best = Math.max(best, ms(liker.likedAt))
-    }
-    if (best > 0) return best
-  }
-  if (isLikedByMe(place)) {
-    return ms(place.likedAt) || ms(place.updatedAt)
-  }
-  return 0
-}
-
-/** Stable multi-person like colors — hash user id so labels stay the same across places. */
-const LIKER_SWATCHES = [
-  {
-    chip: 'border-honey/45 bg-honey-soft text-[#8a5524]',
-    heart: 'text-honey fill-honey',
-    badge: 'bg-honey text-white',
-    onFill: 'border-honey bg-honey text-white hover:bg-honey/90',
-  },
-  {
-    chip: 'border-sea/50 bg-sea/15 text-sea-deep',
-    heart: 'text-sea-deep fill-sea',
-    badge: 'bg-sea text-white',
-    onFill: 'border-sea bg-sea text-white hover:bg-sea/90',
-  },
-  {
-    chip: 'border-keep/45 bg-keep/15 text-keep',
-    heart: 'text-keep fill-keep',
-    badge: 'bg-keep text-white',
-    onFill: 'border-keep bg-keep text-white hover:bg-keep/90',
-  },
-  {
-    chip: 'border-move/50 bg-move/15 text-move',
-    heart: 'text-move fill-move',
-    badge: 'bg-move text-white',
-    onFill: 'border-move bg-move text-white hover:bg-move/90',
-  },
-  {
-    chip: 'border-warn/45 bg-[#f6ebd6] text-warn',
-    heart: 'text-warn fill-warn',
-    badge: 'bg-warn text-white',
-    onFill: 'border-warn bg-warn text-white hover:bg-warn/90',
-  },
-  {
-    chip: 'border-[#6b8e7a]/45 bg-[#e6f0ea] text-[#3f5e4e]',
-    heart: 'text-[#4f7261] fill-[#4f7261]',
-    badge: 'bg-[#4f7261] text-white',
-    onFill: 'border-[#4f7261] bg-[#4f7261] text-white hover:bg-[#436355]',
-  },
-  {
-    chip: 'border-[#b56b6b]/40 bg-[#f6e8e8] text-[#7a3d3d]',
-    heart: 'text-[#b56b6b] fill-[#b56b6b]',
-    badge: 'bg-[#b56b6b] text-white',
-    onFill: 'border-[#b56b6b] bg-[#b56b6b] text-white hover:bg-[#a35c5c]',
-  },
-  {
-    chip: 'border-[#5c7a99]/45 bg-[#e8eef5] text-[#3a5470]',
-    heart: 'text-[#5c7a99] fill-[#5c7a99]',
-    badge: 'bg-[#5c7a99] text-white',
-    onFill: 'border-[#5c7a99] bg-[#5c7a99] text-white hover:bg-[#4f6b88]',
-  },
-] as const
-
-type LikerSwatch = (typeof LIKER_SWATCHES)[number]
-
-function hashUserId(userId: string): number {
-  let h = 2166136261
-  for (let i = 0; i < userId.length; i++) {
-    h ^= userId.charCodeAt(i)
-    h = Math.imul(h, 16777619)
-  }
-  return h >>> 0
-}
-
-function swatchForUser(userId: string): LikerSwatch {
-  return LIKER_SWATCHES[hashUserId(userId) % LIKER_SWATCHES.length]!
-}
-
-/** Liked places first, ordered by most recently liked; then recently added. */
-function sortByRecentlyLiked(a: SavedPlace, b: SavedPlace): number {
-  const aLike = lastLikedMs(a)
-  const bLike = lastLikedMs(b)
-  if (aLike !== bLike) return bLike - aLike
-  const aHas = aLike > 0 || isLikedByMe(a)
-  const bHas = bLike > 0 || isLikedByMe(b)
-  if (aHas !== bHas) return aHas ? -1 : 1
-  return sortByRecentlyAdded(a, b)
-}
-
-/** Per-user likers for shared boards, most recent heart first. */
-function likedByPeople(
-  place: SavedPlace,
-  currentUserId: string | undefined,
-): { key: string; label: string; swatch: LikerSwatch }[] {
-  const likers =
-    place.likedBy && place.likedBy.length
-      ? [...place.likedBy].sort((a, b) => ms(b.likedAt) - ms(a.likedAt))
-      : (place.likedByUserIds ?? []).map((userId) => ({
-          userId,
-          displayName: 'Someone',
-          likedAt: null as string | null,
-        }))
-
-  return likers.map((l) => {
-    const isMe = Boolean(currentUserId && l.userId === currentUserId)
-    return {
-      key: l.userId,
-      label: isMe ? 'You' : l.displayName || 'Someone',
-      swatch: swatchForUser(l.userId),
-    }
-  })
-}
-
-type ListSort = 'recent' | 'liked' | 'monthly_asc' | 'monthly_desc'
-
-function countActiveFilters(
-  listSort: ListSort,
-  petsFilter: PetsFilter,
-  homeTypeFilter: HomeTypeFilter,
-  sqftFilter: SqftFilter,
-  mutualOnly: boolean,
-  cityFilterActive: boolean,
-  addedFilterActive: boolean,
-): number {
-  return (
-    (listSort !== 'recent' ? 1 : 0) +
-    (petsFilter !== 'all' ? 1 : 0) +
-    (homeTypeFilter !== 'all' ? 1 : 0) +
-    (sqftFilter !== 'all' ? 1 : 0) +
-    (mutualOnly ? 1 : 0) +
-    (cityFilterActive ? 1 : 0) +
-    (addedFilterActive ? 1 : 0)
-  )
-}
-
-/** Monthly rent for pricing sorts (rental-first product). Buy list prices are not used. */
-function monthlyCost(place: SavedPlace): number | null {
-  if (place.listingKind === 'buy') return null
-  return place.monthlyEstimate != null && Number.isFinite(place.monthlyEstimate)
-    ? place.monthlyEstimate
-    : null
-}
-
-function placeCityKey(place: Pick<SavedPlace, 'city' | 'location'>): string | null {
-  const city = placeCityLabel(place)
-  return city ? cityKey(city) : null
-}
-
-function citiesFromPlaces(
-  places: SavedPlace[],
-): { key: string; label: string; count: number }[] {
-  const map = new Map<string, { label: string; count: number }>()
-  for (const place of places) {
-    const city = placeCityLabel(place)
-    if (!city) continue
-    const key = cityKey(city)
-    const existing = map.get(key)
-    if (existing) {
-      existing.count += 1
-    } else {
-      map.set(key, { label: city, count: 1 })
-    }
-  }
-  return [...map.entries()]
-    .map(([key, value]) => ({ key, label: value.label, count: value.count }))
-    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }))
-}
-
-function placeMatchesCities(place: SavedPlace, selectedKeys: string[]): boolean {
-  if (!selectedKeys.length) return true
-  const key = placeCityKey(place)
-  return key != null && selectedKeys.includes(key)
-}
-
-function sortPlaces(
-  places: SavedPlace[],
-  sort: ListSort,
-  petsFilter: PetsFilter,
-  homeTypeFilter: HomeTypeFilter,
-  sqftFilter: SqftFilter,
-  cityKeys: string[],
-  mutualOnly: boolean,
-  addedFilter: AddedFilter,
-): SavedPlace[] {
-  let next = places.filter((p) => {
-    if (!matchesPetsFilter(p, petsFilter)) return false
-    if (!matchesHomeTypeFilter(p, homeTypeFilter)) return false
-    if (!matchesSqftFilter(p, sqftFilter)) return false
-    if (!placeMatchesCities(p, cityKeys)) return false
-    if (mutualOnly && !isMutualLike(p)) return false
-    if (!matchesAddedFilter(p, addedFilter)) return false
-    return true
-  })
-
-  const byMissingLast = (value: number | null, dir: 1 | -1) => {
-    if (value == null) return Number.POSITIVE_INFINITY
-    return dir === 1 ? value : -value
-  }
-
-  next = [...next].sort((a, b) => {
-    if (sort === 'monthly_asc' || sort === 'monthly_desc') {
-      const dir = sort === 'monthly_asc' ? 1 : -1
-      const byRent =
-        byMissingLast(monthlyCost(a), dir as 1 | -1) -
-        byMissingLast(monthlyCost(b), dir as 1 | -1)
-      if (byRent !== 0) return byRent
-      if (a.listingKind !== b.listingKind) {
-        return a.listingKind === 'rent' ? -1 : 1
-      }
-      // Liker timestamps matter when comparing hearts
-      if (lastLikedMs(a) || lastLikedMs(b)) {
-        return sortByRecentlyLiked(a, b)
-      }
-      return sortByRecentlyAdded(a, b)
-    }
-    if (sort === 'liked' || mutualOnly) {
-      return sortByRecentlyLiked(a, b)
-    }
-    return sortByRecentlyAdded(a, b)
-  })
-
-  return next
-}
-
 export function PlacesWorkspace({
   app,
   auth,
@@ -807,6 +272,10 @@ export function PlacesWorkspace({
   const [cityKeys, setCityKeys] = useState<string[]>([])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [mobileTier, setMobileTier] = useState<PlaceTier>('dream')
+  const [mobileTierMode, setMobileTierMode] = useState<'focus' | 'overview'>(
+    'focus',
+  )
   const [shareOpen, setShareOpen] = useState(false)
   const [linkSharePlaces, setLinkSharePlaces] = useState<SavedPlace[] | null>(
     null,
@@ -1235,6 +704,33 @@ export function PlacesWorkspace({
     allPlaces.length > 0
   const showFloatingDock = showFloatingSelectDock || showFloatingQuickDock
 
+  const tierCounts = useMemo(() => {
+    const counts = {
+      dream: 0,
+      strong: 0,
+      maybe: 0,
+      pass: 0,
+    } as Record<PlaceTier, number>
+    for (const p of boardPlaces) {
+      counts[p.tier] = (counts[p.tier] ?? 0) + 1
+    }
+    return counts
+  }, [boardPlaces])
+
+  const showFloatingTierNav =
+    view === 'tiers' && !isMdUp && scrolledPastTools && boardPlaces.length > 0
+
+  const onFloatingTierSelect = (tier: PlaceTier) => {
+    setMobileTier(tier)
+    if (mobileTierMode === 'overview') {
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById(`tier-overview-${tier}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+  }
+
   const viewModes = [
     { id: 'list' as const, label: 'List' },
     { id: 'tiers' as const, label: 'Tier List' },
@@ -1356,7 +852,7 @@ export function PlacesWorkspace({
 
   return (
     <div className="w-full min-w-0 max-w-full space-y-3 pb-24 md:space-y-5 md:pb-0">
-      {/* ── Page chrome: list identity + list-level actions ── */}
+      {/* â”€â”€ Page chrome: list identity + list-level actions â”€â”€ */}
       <header className="rounded-[1.25rem] border border-line bg-panel px-3.5 py-3 shadow-[var(--shadow-soft)] md:rounded-[1.75rem] md:px-7 md:py-4">
         {/* Mobile: single identity row */}
         <div className="flex items-center gap-2 md:hidden">
@@ -2003,6 +1499,10 @@ export function PlacesWorkspace({
                   selectMode={selectMode}
                   selectedIds={selectedIds}
                   reorderEnabled={!hasActiveFilters}
+                  mobileTier={mobileTier}
+                  onMobileTierChange={setMobileTier}
+                  mobileMode={mobileTierMode}
+                  onMobileModeChange={setMobileTierMode}
                   onToggleSelect={toggleSelect}
                   onEdit={startEdit}
                   onOpenLightbox={openLightbox}
@@ -2085,7 +1585,7 @@ export function PlacesWorkspace({
                               <span className="text-sm font-bold text-sea-deep">
                                 {place.listingKind === 'rent' ? 'Rental' : 'Buy'}
                               </span>
-                              <span className="text-ink-soft">·</span>
+                              <span className="text-ink-soft">Â·</span>
                               <span className="text-sm font-bold text-ink">
                                 {TIER_LABEL[place.tier]}
                               </span>
@@ -2683,258 +2183,63 @@ export function PlacesWorkspace({
         ) : null}
       </AnimatePresence>
 
-      <FloatingListDock
+      <SelectionDock
         open={showFloatingDock}
-        aria-label={selectMode ? 'Selection actions' : 'List quick actions'}
-      >
-        {showFloatingSelectDock ? (
-          <>
-            <p className="shrink-0 text-sm font-bold tabular-nums text-ink">
-              {selectedIds.length}
-              <span className="hidden sm:inline"> selected</span>
-            </p>
-            <Button
-              type="button"
-              variant="ghost"
-              className="hidden min-h-11 px-2.5 text-sm sm:inline-flex md:h-9 md:min-h-9"
-              onClick={selectAllVisible}
-            >
-              All shown
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="hidden min-h-11 px-2.5 text-sm md:inline-flex md:h-9 md:min-h-9"
-              onClick={() =>
-              setSelectedIds(
-                view === 'tiers'
-                  ? idsInTierDisplayOrder(allPlaces)
-                  : allPlaces.map((p) => p.id),
-              )
-            }
-            >
-              Full list
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="hidden min-h-11 px-2.5 text-sm sm:inline-flex md:h-9 md:min-h-9"
-              onClick={clearSelection}
-            >
-              Clear
-            </Button>
-            {selectedIds.length > 0 && collab.cloudActive ? (
-              <div className="relative hidden sm:block">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="min-h-11 px-2.5 text-sm md:h-9 md:min-h-9"
-                  onClick={() => setBulkCopyOpen((v) => !v)}
-                >
-                  <Copy className="h-4 w-4" />
-                  <span className="hidden sm:inline">Copy</span>
-                </Button>
-                {bulkCopyOpen ? (
-                  <div className="absolute bottom-full left-0 z-30 mb-2 w-[min(18rem,calc(100vw-2rem))]">
-                    <CopyToListMenu
-                      collab={collab}
-                      placeIds={selectedIds}
-                      onDone={(msg) => {
-                        setListToast(msg)
-                        setBulkCopyOpen(false)
-                      }}
-                      onCancel={() => setBulkCopyOpen(false)}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {selectedIds.length > 0 ? (
-              <Button
-                type="button"
-                variant="danger"
-                className="min-h-11 min-w-11 px-2.5 md:h-9 md:min-h-9"
-                onClick={() =>
-                  setDeleteTarget({ kind: 'bulk', ids: [...selectedIds] })
-                }
-                aria-label="Delete selected"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            ) : null}
-            {selectedIds.length > 0 && isSupabaseConfigured ? (
-              <Button
-                type="button"
-                variant="secondary"
-                className="hidden min-h-11 px-2.5 text-sm sm:inline-flex md:h-9 md:min-h-9"
-                onClick={openGuestLinkForSelection}
-                aria-label="Guest link"
-                title="Create a guest link"
-              >
-                <Link2 className="h-4 w-4" />
-                <span className="hidden sm:inline">Guest link</span>
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="honey"
-              className="ml-auto min-h-11 min-w-11 px-3 md:h-9 md:min-h-9"
-              onClick={() => setShareOpen(true)}
-              disabled={selectedIds.length === 0 && allPlaces.length === 0}
-              aria-label="Share with people"
-            >
-              <Share2 className="h-4 w-4" />
-              <span className="hidden sm:inline">Invite</span>
-            </Button>
-            <div className="relative sm:hidden">
-              <Button
-                type="button"
-                variant="ghost"
-                className="min-h-11 min-w-11 px-2"
-                aria-label="More select actions"
-                aria-expanded={selectMoreOpen}
-                onClick={() => setSelectMoreOpen((v) => !v)}
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </Button>
-              {selectMoreOpen ? (
-                <div className="absolute bottom-full right-0 z-30 mb-2 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[var(--shadow-lift)]">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
-                    onClick={() => {
-                      selectAllVisible()
-                      setSelectMoreOpen(false)
-                    }}
-                  >
-                    All shown
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
-                    onClick={() => {
-                      clearSelection()
-                      setSelectMoreOpen(false)
-                    }}
-                  >
-                    Clear
-                  </button>
-                  {selectedIds.length > 0 && isSupabaseConfigured ? (
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
-                      onClick={() => {
-                        openGuestLinkForSelection()
-                        setSelectMoreOpen(false)
-                      }}
-                    >
-                      <Link2 className="h-4 w-4" />
-                      Guest link
-                    </button>
-                  ) : null}
-                  {selectedIds.length > 0 && collab.cloudActive ? (
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
-                      onClick={() => {
-                        setBulkCopyOpen(true)
-                        setSelectMoreOpen(false)
-                      }}
-                    >
-                      <Copy className="h-4 w-4" />
-                      Copy to list
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
-              {bulkCopyOpen && selectedIds.length > 0 && collab.cloudActive ? (
-                <div className="absolute bottom-full right-0 z-30 mb-2 w-[min(18rem,calc(100vw-2rem))] sm:hidden">
-                  <CopyToListMenu
-                    collab={collab}
-                    placeIds={selectedIds}
-                    onDone={(msg) => {
-                      setListToast(msg)
-                      setBulkCopyOpen(false)
-                    }}
-                    onCancel={() => setBulkCopyOpen(false)}
-                  />
-                </div>
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              variant="ghost"
-              className="min-h-11 min-w-11 px-2"
-              onClick={() => {
-                setSelectMode(false)
-                clearSelection()
-                setBulkCopyOpen(false)
-                setSelectMoreOpen(false)
-              }}
-              aria-label="Done selecting"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button
-              type="button"
-              variant="secondary"
-              className="min-h-11 px-3 text-sm md:h-9 md:min-h-9"
-              onClick={() => {
-                setSelectMode(true)
-                setBulkCopyOpen(false)
-              }}
-            >
-              <Square className="h-3.5 w-3.5" />
-              Select
-            </Button>
-            <Button
-              type="button"
-              variant="honey"
-              className="min-h-11 px-3 text-sm md:h-9 md:min-h-9"
-              onClick={openNewPlace}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add
-            </Button>
-            {!isMdUp ? (
-              <Button
-                type="button"
-                variant={
-                  filtersOpen || activeFilterCount > 0 ? 'primary' : 'secondary'
-                }
-                className="min-h-11 px-3 text-sm"
-                onClick={() => setFiltersOpen(true)}
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
-                Filters
-                {activeFilterCount > 0 ? (
-                  <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/20 px-1.5 text-[11px]">
-                    {activeFilterCount}
-                  </span>
-                ) : null}
-              </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="ghost"
-              className="ml-auto min-h-11 min-w-11 px-2 md:h-9 md:min-h-9"
-              onClick={() =>
-                window.scrollTo({ top: 0, behavior: 'smooth' })
+        selectMode={selectMode}
+        selectedCount={selectedIds.length}
+        cloudActive={collab.cloudActive}
+        supabaseConfigured={isSupabaseConfigured}
+        isMdUp={isMdUp}
+        activeFilterCount={activeFilterCount}
+        filtersOpen={filtersOpen}
+        bulkCopyOpen={bulkCopyOpen}
+        selectMoreOpen={selectMoreOpen}
+        selectedIds={selectedIds}
+        collab={collab}
+        tierNav={
+          showFloatingTierNav
+            ? {
+                activeTier: mobileTier,
+                mode: mobileTierMode,
+                counts: tierCounts,
+                onSelectTier: onFloatingTierSelect,
               }
-              aria-label="Back to top"
-              title="Back to top"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-          </>
-        )}
-      </FloatingListDock>
+            : null
+        }
+        onSelectAllVisible={selectAllVisible}
+        onSelectFullList={() =>
+          setSelectedIds(
+            view === 'tiers'
+              ? idsInTierDisplayOrder(allPlaces)
+              : allPlaces.map((p) => p.id),
+          )
+        }
+        onClearSelection={clearSelection}
+        onDeleteSelected={() =>
+          setDeleteTarget({ kind: 'bulk', ids: [...selectedIds] })
+        }
+        onGuestLink={openGuestLinkForSelection}
+        onInvite={() => setShareOpen(true)}
+        onDoneSelecting={() => {
+          setSelectMode(false)
+          clearSelection()
+          setBulkCopyOpen(false)
+          setSelectMoreOpen(false)
+        }}
+        onEnterSelectMode={() => {
+          setSelectMode(true)
+          setBulkCopyOpen(false)
+        }}
+        onAdd={openNewPlace}
+        onOpenFilters={() => setFiltersOpen(true)}
+        onBulkCopyOpenChange={setBulkCopyOpen}
+        onSelectMoreOpenChange={setSelectMoreOpen}
+        onCopyDone={(msg) => setListToast(msg)}
+        onScrollTop={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        inviteDisabled={selectedIds.length === 0 && allPlaces.length === 0}
+      />
 
-      {/* Keep list cards clear of the floating dock */}
-      {showFloatingDock ? <div className="h-20 shrink-0 md:h-16" aria-hidden /> : null}
+      <SelectionDockSpacer open={showFloatingDock} tall={showFloatingTierNav} />
 
       <ShareSheet
         open={shareOpen}
@@ -3097,9 +2402,9 @@ export function PlacesWorkspace({
           deleteTarget?.kind === 'bulk'
             ? `${deleteTarget.ids.length} selected place${
                 deleteTarget.ids.length === 1 ? '' : 's'
-              } will be removed from this list. This can’t be undone.`
+              } will be removed from this list. This can't be undone.`
             : deleteTarget?.kind === 'single'
-              ? `“${deleteTarget.title}” will be removed from your Tier List. This can’t be undone.`
+              ? `“${deleteTarget.title}” will be removed from your Tier List. This can't be undone.`
               : undefined
         }
         confirmLabel={
@@ -3124,733 +2429,6 @@ export function PlacesWorkspace({
         }}
       />
     </div>
-  )
-}
-
-function FormSection({ children }: { children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-line bg-panel p-4">
-      {children}
-    </section>
-  )
-}
-
-function PetsBadge({
-  pets,
-  note,
-  className,
-  compact = false,
-}: {
-  pets: PetsPolicy
-  note?: string
-  className?: string
-  /** Inline chip without wrapping note — for dense list meta rows */
-  compact?: boolean
-}) {
-  const tone =
-    pets === 'yes'
-      ? 'bg-move/15 text-move'
-      : pets === 'limited'
-        ? 'bg-honey-soft text-honey'
-        : pets === 'no'
-          ? 'bg-warn/15 text-warn'
-          : 'bg-line/60 text-ink-soft'
-
-  if (compact) {
-    return (
-      <span
-        className={cn(
-          'inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold leading-none',
-          tone,
-          className,
-        )}
-        title={
-          note && (pets === 'yes' || pets === 'limited')
-            ? `${PETS_LABEL[pets] ?? PETS_LABEL.no}: ${note}`
-            : PETS_LABEL[pets] ?? PETS_LABEL.no
-        }
-      >
-        {PETS_LABEL[pets] ?? PETS_LABEL.no}
-      </span>
-    )
-  }
-
-  return (
-    <div className={cn('flex flex-wrap items-center gap-2', className)}>
-      <span className={cn('rounded-full px-2.5 py-1 text-xs font-bold', tone)}>
-        {PETS_LABEL[pets] ?? PETS_LABEL.no}
-      </span>
-      {note && (pets === 'yes' || pets === 'limited') ? (
-        <span className="text-xs text-ink-soft">{note}</span>
-      ) : null}
-    </div>
-  )
-}
-
-function primaryCostLabel(place: SavedPlace): string {
-  if (place.listingKind === 'rent') {
-    return place.monthlyEstimate != null
-      ? `${formatMoney(place.monthlyEstimate)}/mo`
-      : 'Rent not set'
-  }
-  if (place.price != null) return formatMoney(place.price)
-  return 'Price not set'
-}
-
-function EmptyPlaces({ onAdd }: { onAdd: () => void }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-line bg-folio/60 px-6 py-10 text-center">
-      <p className="font-display text-2xl font-semibold text-ink">No places saved yet</p>
-      <Button className="mt-4" variant="honey" onClick={onAdd}>
-        <Plus className="h-4 w-4" />
-        Add your first place
-      </Button>
-    </div>
-  )
-}
-
-function TagRow({
-  labels,
-  tone,
-  className,
-  max = 6,
-}: {
-  labels: string[]
-  tone: 'pro' | 'con'
-  className?: string
-  max?: number
-}) {
-  if (!labels?.length) return null
-  const shown = labels.slice(0, max)
-  const extra = labels.length - shown.length
-  return (
-    <ul className={cn('flex flex-wrap gap-1', className)}>
-      {shown.map((label) => (
-        <li
-          key={label}
-          className={cn(
-            'rounded-full px-2 py-0.5 text-[11px] font-bold leading-tight',
-            tone === 'pro' && 'bg-move/15 text-move',
-            tone === 'con' && 'bg-warn/15 text-warn',
-          )}
-        >
-          {label}
-        </li>
-      ))}
-      {extra > 0 ? (
-        <li className="rounded-full bg-line/50 px-2 py-0.5 text-[11px] font-bold text-ink-soft">
-          +{extra}
-        </li>
-      ) : null}
-    </ul>
-  )
-}
-
-function ChipPicker({
-  legend,
-  suggestions,
-  selected,
-  onChange,
-  tone,
-  customPlaceholder,
-}: {
-  legend: string
-  suggestions: string[]
-  selected: string[]
-  onChange: (next: string[]) => void
-  tone: 'pro' | 'con'
-  customPlaceholder: string
-}) {
-  const [custom, setCustom] = useState('')
-  const pool = useMemo(() => {
-    const extras = selected.filter((s) => !suggestions.includes(s))
-    return [...suggestions, ...extras]
-  }, [suggestions, selected])
-
-  const toggle = (label: string) => {
-    if (selected.includes(label)) {
-      onChange(selected.filter((s) => s !== label))
-    } else {
-      onChange([...selected, label])
-    }
-  }
-
-  const addCustom = (e?: FormEvent) => {
-    e?.preventDefault()
-    const label = custom.trim()
-    if (!label) return
-    if (!selected.includes(label)) onChange([...selected, label])
-    setCustom('')
-  }
-
-  return (
-    <fieldset>
-      <legend className="text-sm font-bold leading-5 text-ink">{legend}</legend>
-      <div className="mt-2.5 flex flex-wrap gap-2">
-        {pool.map((label) => {
-          const on = selected.includes(label)
-          return (
-            <button
-              key={label}
-              type="button"
-              onClick={() => toggle(label)}
-              aria-pressed={on}
-              className={cn(
-                'h-9 rounded-full border px-3 text-sm font-bold',
-                motion.chip,
-                on &&
-                  tone === 'pro' &&
-                  'border-move bg-move text-white shadow-[var(--shadow-soft)]',
-                on &&
-                  tone === 'con' &&
-                  'border-warn bg-warn text-white shadow-[var(--shadow-soft)]',
-                !on && 'border-line bg-panel text-ink hover:border-sea hover:bg-folio',
-              )}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-      <form onSubmit={addCustom} className="mt-3 flex gap-2">
-        <TextInput
-          className="min-w-0 flex-1"
-          value={custom}
-          onChange={(e) => setCustom(e.target.value)}
-          placeholder={customPlaceholder}
-        />
-        <Button type="submit" variant="secondary" className="h-12 shrink-0 rounded-xl px-4">
-          Add
-        </Button>
-      </form>
-    </fieldset>
-  )
-}
-
-function PlaceCard({
-  place,
-  density = 'comfortable',
-  moveBudget,
-  selectMode,
-  checked,
-  likedBy = [],
-  mySwatch,
-  onToggleSelect,
-  onOpenImages,
-  onFavorite,
-  onEdit,
-  onDelete,
-  onShareLink,
-  onCopyToList,
-  copyMenu,
-}: {
-  place: SavedPlace
-  density?: ListDensity
-  moveBudget: number | null
-  selectMode: boolean
-  checked: boolean
-  /** Shared list: each person who liked, newest first */
-  likedBy?: { key: string; label: string; swatch: LikerSwatch }[]
-  /** Stable color for the signed-in user’s heart */
-  mySwatch?: LikerSwatch
-  onToggleSelect: () => void
-  onOpenImages: (images: string[], index: number, title?: string) => void
-  onFavorite: () => void
-  onEdit: () => void
-  onDelete: () => void
-  onShareLink?: () => void
-  onCopyToList?: () => void
-  copyMenu?: ReactNode
-}) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const compact = density === 'compact'
-  const images = placeImages(place)
-  const liked = isLikedByMe(place)
-  const meTone = mySwatch ?? LIKER_SWATCHES[0]!
-  const over =
-    place.listingKind === 'rent' &&
-    moveBudget != null &&
-    place.monthlyEstimate != null &&
-    place.monthlyEstimate > moveBudget
-
-  const bedsBaths = [
-    place.bedrooms != null ? `${place.bedrooms} bd` : null,
-    place.bathrooms != null ? `${place.bathrooms} ba` : null,
-    place.sqft != null && place.sqft > 0
-      ? `${Math.round(place.sqft).toLocaleString()} sqft`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-
-  const locationLine =
-    place.city ||
-    place.location ||
-    (place.street ? place.street : '') ||
-    'Location not set'
-
-  const thumbLikers =
-    likedBy.length > 0
-      ? likedBy.slice(0, 4)
-      : liked
-        ? [{ key: 'me', label: 'You', swatch: meTone }]
-        : []
-
-  return (
-    <article
-      className={cn(
-        'min-w-0 overflow-hidden border bg-panel shadow-[var(--shadow-soft)] sm:flex',
-        motion.color,
-        compact
-          ? 'rounded-xl sm:rounded-xl'
-          : 'rounded-2xl sm:rounded-[1.25rem]',
-        checked ? 'border-sea ring-2 ring-sea/25' : 'border-line sm:hover:border-sea/60',
-      )}
-    >
-      {/* Media — full-bleed on mobile (Airbnb/Zillow style), rail on desktop */}
-      <div
-        className={cn(
-          'relative min-w-0 sm:shrink-0',
-          compact ? 'sm:w-24 md:w-28' : 'sm:w-32 md:w-40',
-        )}
-      >
-        {selectMode ? (
-          <button
-            type="button"
-            onClick={onToggleSelect}
-            className="absolute left-2.5 top-2.5 z-10 rounded-full bg-panel/95 p-2 shadow-[var(--shadow-soft)]"
-            aria-pressed={checked}
-            aria-label={checked ? 'Deselect place' : 'Select place'}
-          >
-            {checked ? (
-              <CheckSquare className="h-4 w-4 text-sea-deep" />
-            ) : (
-              <Square className="h-4 w-4 text-ink-soft" />
-            )}
-          </button>
-        ) : null}
-        {images[0] ? (
-          <OpenableImage
-            images={images}
-            index={0}
-            title={place.title || 'Untitled place'}
-            onOpen={onOpenImages}
-            className={cn(
-              'w-full sm:aspect-auto sm:h-full',
-              compact
-                ? 'aspect-[2.2/1] sm:min-h-[5.5rem]'
-                : 'aspect-[16/10] sm:min-h-[7.5rem]',
-            )}
-            imgClassName={cn(
-              'h-full w-full object-cover',
-              compact ? 'sm:min-h-[5.5rem]' : 'sm:min-h-[7.5rem]',
-            )}
-          />
-        ) : (
-          <div
-            className={cn(
-              'flex w-full items-center justify-center bg-folio text-xs font-bold text-ink-soft sm:aspect-auto',
-              compact
-                ? 'aspect-[2.2/1] sm:min-h-[5.5rem]'
-                : 'aspect-[16/10] sm:min-h-[7.5rem]',
-            )}
-          >
-            No photo
-          </div>
-        )}
-        {images.length > 1 && !compact ? (
-          <span className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-ink/70 px-2 py-0.5 text-[10px] font-bold text-white">
-            {images.length} photos
-          </span>
-        ) : null}
-        {!selectMode ? (
-          <button
-            type="button"
-            onClick={onFavorite}
-            aria-pressed={liked}
-            aria-label={liked ? 'Unlike place' : 'Like place'}
-            className={cn(
-              'absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-full backdrop-blur-sm sm:hidden',
-              motion.chip,
-              liked
-                ? cn(meTone.badge, 'border border-transparent shadow-sm')
-                : 'border border-white/40 bg-ink/35 text-white',
-            )}
-          >
-            <Heart
-              className={cn(
-                'h-4 w-4',
-                liked ? 'fill-white text-white' : 'fill-none text-white',
-              )}
-              strokeWidth={liked ? 2 : 2.25}
-            />
-          </button>
-        ) : null}
-        {thumbLikers.length > 0 && !selectMode ? (
-          <span
-            className="pointer-events-none absolute right-1.5 top-1.5 hidden items-center -space-x-1.5 sm:flex"
-            title={
-              likedBy.length
-                ? `Liked by ${likedBy.map((p) => p.label).join(', ')}`
-                : 'Liked'
-            }
-          >
-            {thumbLikers.map((person) => (
-              <span
-                key={person.key}
-                className={cn(
-                  'inline-flex h-6 w-6 items-center justify-center rounded-full shadow-sm ring-2 ring-white/90',
-                  person.swatch.badge,
-                )}
-              >
-                <Heart className="h-3 w-3 fill-current" />
-              </span>
-            ))}
-          </span>
-        ) : null}
-      </div>
-
-      <div
-        className={cn(
-          'flex min-w-0 flex-1 flex-col justify-between',
-          compact ? 'gap-1 p-2.5 sm:px-3 sm:py-2' : 'gap-2 p-3.5 sm:px-4 sm:py-3',
-        )}
-      >
-        <div className="flex items-start gap-2">
-          <div className="min-w-0 flex-1">
-            <div
-              className={cn(
-                'flex flex-wrap items-center gap-x-1.5 gap-y-1 font-bold leading-none text-sea-deep',
-                compact ? 'text-[10px]' : 'text-[11px] sm:text-xs',
-              )}
-            >
-              <span>{place.listingKind === 'rent' ? 'Rental' : 'Buy'}</span>
-              <span className="text-line" aria-hidden>
-                ·
-              </span>
-              <span>{TIER_LABEL[place.tier]}</span>
-              {!compact && place.status !== 'none' ? (
-                <>
-                  <span className="text-line" aria-hidden>
-                    ·
-                  </span>
-                  <span>{STATUS_LABEL[place.status]}</span>
-                </>
-              ) : null}
-              <PetsBadge pets={place.pets ?? 'no'} note={place.petsNote} compact />
-            </div>
-
-            <button
-              type="button"
-              onClick={onEdit}
-              className="mt-1 block w-full text-left"
-            >
-              <h3
-                className={cn(
-                  'font-display font-semibold leading-snug tracking-[-0.02em] text-ink',
-                  compact ? 'text-base' : 'text-xl',
-                )}
-              >
-                <span className="line-clamp-2 sm:line-clamp-1">
-                  {place.title || 'Untitled place'}
-                </span>
-              </h3>
-            </button>
-
-            <p
-              className={cn(
-                'mt-0.5 truncate text-ink-soft',
-                compact ? 'text-xs' : 'text-sm',
-              )}
-            >
-              {locationLine}
-            </p>
-          </div>
-
-          {/* Desktop action cluster */}
-          <div className="hidden shrink-0 flex-wrap items-center justify-end gap-1.5 sm:flex">
-            {selectMode ? (
-              <Button
-                type="button"
-                variant={checked ? 'primary' : 'secondary'}
-                className="h-9 min-h-9 rounded-xl px-3 text-sm"
-                onClick={onToggleSelect}
-              >
-                {checked ? 'Selected' : 'Select'}
-              </Button>
-            ) : (
-              <>
-                {place.url ? (
-                  <ButtonLink
-                    href={place.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    variant="primary"
-                    className="h-9 min-h-9 rounded-xl px-3 text-sm"
-                    title="Open listing"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                    Open listing
-                  </ButtonLink>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className={cn(
-                    'h-9 min-h-9 rounded-xl px-2.5',
-                    liked
-                      ? cn(meTone.chip, 'hover:brightness-[0.98]')
-                      : 'text-ink-soft',
-                  )}
-                  onClick={onFavorite}
-                  aria-pressed={liked}
-                  aria-label={liked ? 'Unlike place' : 'Like place'}
-                  title={liked ? 'Unlike' : 'Like'}
-                >
-                  <Heart
-                    className={cn(
-                      'h-4 w-4',
-                      liked
-                        ? cn('fill-current', meTone.heart)
-                        : 'fill-none text-ink-soft',
-                    )}
-                    strokeWidth={liked ? 2 : 2.25}
-                  />
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-9 min-h-9 rounded-xl px-3 text-sm"
-                  onClick={onEdit}
-                >
-                  Edit
-                </Button>
-                {onShareLink ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-9 min-h-9 rounded-xl px-2.5"
-                    onClick={onShareLink}
-                    title="Guest link"
-                    aria-label="Create guest link"
-                  >
-                    <Link2 className="h-3.5 w-3.5" />
-                  </Button>
-                ) : null}
-                {onCopyToList ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="h-9 min-h-9 rounded-xl px-2.5"
-                    onClick={onCopyToList}
-                    title="Copy to another list"
-                    aria-label="Copy to another list"
-                  >
-                    <Copy className="h-3.5 w-3.5" />
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-9 min-h-9 rounded-xl px-2"
-                  onClick={onDelete}
-                  aria-label="Remove place"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-
-        {copyMenu ? <div className="relative z-20">{copyMenu}</div> : null}
-
-        <div className={cn('flex flex-col', compact ? 'gap-1' : 'gap-1.5')}>
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-            <span
-              className={cn(
-                'font-bold tabular-nums',
-                compact ? 'text-base' : 'text-lg',
-                place.listingKind === 'rent'
-                  ? over
-                    ? 'text-warn'
-                    : 'text-move'
-                  : 'text-ink',
-              )}
-            >
-              {primaryCostLabel(place)}
-            </span>
-            {bedsBaths ? (
-              <span className={cn('text-ink-soft', compact ? 'text-xs' : 'text-sm')}>
-                {bedsBaths}
-              </span>
-            ) : null}
-            {!compact && likedBy.length > 0 ? (
-              <span
-                className="inline-flex max-w-full flex-wrap items-center gap-1 text-[11px] font-bold"
-                title={`Liked by ${likedBy.map((p) => p.label).join(', ')}`}
-              >
-                <span className="text-ink-soft">Liked by</span>
-                {likedBy.map((person) => (
-                  <span
-                    key={person.key}
-                    className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5',
-                      person.swatch.chip,
-                    )}
-                  >
-                    <Heart className={cn('h-3 w-3 shrink-0', person.swatch.heart)} />
-                    {person.label}
-                  </span>
-                ))}
-              </span>
-            ) : null}
-          </div>
-
-          {!compact && (place.proTags?.length || place.concernTags?.length) ? (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <TagRow labels={place.proTags} tone="pro" max={3} />
-              <TagRow labels={place.concernTags} tone="con" max={2} />
-            </div>
-          ) : null}
-
-          {!compact && place.notes ? (
-            <p className="line-clamp-1 text-xs text-ink-soft sm:text-sm">{place.notes}</p>
-          ) : null}
-
-          {/* Mobile bottom actions — photo-led, tools one layer deeper */}
-          {!selectMode ? (
-            <div
-              className={cn(
-                'flex items-center gap-1.5 border-t border-line/70 sm:hidden',
-                compact ? 'mt-0.5 pt-1.5' : 'mt-0.5 pt-2',
-              )}
-            >
-              {place.url ? (
-                <ButtonLink
-                  href={place.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  variant="secondary"
-                  className={cn(
-                    'flex-1 rounded-full px-3 text-sm',
-                    compact ? 'min-h-10' : 'min-h-11',
-                  )}
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Listing
-                </ButtonLink>
-              ) : null}
-              <Button
-                type="button"
-                variant="secondary"
-                className={cn(
-                  'flex-1 rounded-full px-3 text-sm',
-                  compact ? 'min-h-10' : 'min-h-11',
-                )}
-                onClick={onEdit}
-              >
-                Edit
-              </Button>
-              <div className="relative">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="min-h-11 min-w-11 rounded-full px-2.5"
-                  onClick={() => setMenuOpen((v) => !v)}
-                  aria-expanded={menuOpen}
-                  aria-label="More actions"
-                >
-                  <MoreHorizontal className="h-4 w-4" />
-                </Button>
-                {menuOpen ? (
-                  <>
-                    <button
-                      type="button"
-                      className="fixed inset-0 z-20 cursor-default"
-                      aria-label="Close menu"
-                      onClick={() => setMenuOpen(false)}
-                    />
-                    <div className="absolute bottom-full right-0 z-30 mb-1.5 min-w-[10rem] overflow-hidden rounded-xl border border-line bg-panel py-1 shadow-[var(--shadow-lift)]">
-                      {onShareLink ? (
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
-                          onClick={() => {
-                            setMenuOpen(false)
-                            onShareLink()
-                          }}
-                        >
-                          <Link2 className="h-3.5 w-3.5" />
-                          Guest link
-                        </button>
-                      ) : null}
-                      {onCopyToList ? (
-                        <button
-                          type="button"
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-ink hover:bg-folio"
-                          onClick={() => {
-                            setMenuOpen(false)
-                            onCopyToList()
-                          }}
-                        >
-                          <Copy className="h-3.5 w-3.5" />
-                          Copy to list
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold text-warn hover:bg-folio"
-                        onClick={() => {
-                          setMenuOpen(false)
-                          onDelete()
-                        }}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Remove
-                      </button>
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-0.5 border-t border-line/70 pt-2 sm:hidden">
-              <Button
-                type="button"
-                variant={checked ? 'primary' : 'secondary'}
-                className="h-9 min-h-9 w-full rounded-full text-sm"
-                onClick={onToggleSelect}
-              >
-                {checked ? 'Selected' : 'Select'}
-              </Button>
-            </div>
-          )}
-
-          {images.length > 1 && !compact ? (
-            <div
-              className="hidden min-w-0 max-w-full gap-1.5 overflow-x-auto pb-0.5 pt-0.5 sm:flex"
-              aria-label={`${images.length} photos`}
-            >
-              {images.map((url, index) => (
-                <OpenableImage
-                  key={`${url}-${index}`}
-                  images={images}
-                  index={index}
-                  title={place.title || 'Untitled place'}
-                  onOpen={onOpenImages}
-                  className={cn(
-                    'h-12 w-[4.25rem] shrink-0 overflow-hidden rounded-lg border sm:h-14 sm:w-20',
-                    index === 0 ? 'border-sea/50' : 'border-line',
-                  )}
-                  imgClassName="h-12 w-[4.25rem] object-cover sm:h-14 sm:w-20"
-                />
-              ))}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </article>
   )
 }
 

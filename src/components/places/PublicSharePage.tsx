@@ -6,12 +6,11 @@
  * FORM: Looking-glass window (surface seed 24c19eb3 · candidate 6).
  * FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
-  Images,
 } from 'lucide-react'
 import { AnimatePresence, motion as m } from 'motion/react'
 import { fetchPublicShare } from '../../data/collaboration/api'
@@ -19,50 +18,22 @@ import type {
   PublicShareRecord,
   SharedPlaceSnapshot,
 } from '../../data/collaboration/share'
-import { formatMoney } from '../../domain/finance/calculations'
 import {
   formatPlaceAddress,
   resolvePlaceAddress,
 } from '../../domain/places/address'
-import { PLACE_HOME_TYPE_OPTIONS } from '../../domain/types'
 import { motion } from '../../lib/motion'
-import { tweenPanel, easeSnappy } from '../../lib/motionPresets'
+import { easeSnappy } from '../../lib/motionPresets'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { cn } from '../../lib/utils'
 import { Button, ButtonLink } from '../ui/Button'
 import { ImageLightbox } from './ImageLightbox'
-
-const TIER_LABEL: Record<SharedPlaceSnapshot['tier'], string> = {
-  dream: 'Dream',
-  strong: 'Strong yes',
-  maybe: 'Maybe',
-  pass: 'Pass',
-}
+import { ShareHeroCarousel } from './share/ShareHeroCarousel'
 
 const PETS_LABEL: Record<SharedPlaceSnapshot['pets'], string> = {
   yes: 'Pets OK',
   limited: 'Pets limited',
   no: 'No pets',
-}
-
-const PLACE_SWIPE_THRESHOLD = 56
-
-function costLabel(place: SharedPlaceSnapshot): string {
-  if (place.listingKind === 'rent') {
-    return place.monthlyEstimate != null
-      ? `${formatMoney(place.monthlyEstimate)}/mo`
-      : 'Rent not set'
-  }
-  if (place.price != null) return formatMoney(place.price)
-  return 'Price not set'
-}
-
-function homeTypeLabel(place: SharedPlaceSnapshot): string | null {
-  if (!place.homeType) return null
-  return (
-    PLACE_HOME_TYPE_OPTIONS.find((o) => o.value === place.homeType)?.label ??
-    null
-  )
 }
 
 function placeAddress(place: SharedPlaceSnapshot): string {
@@ -98,11 +69,7 @@ export function PublicSharePage({ token }: { token: string }) {
     index: number
     title?: string
   } | null>(null)
-  const [dragX, setDragX] = useState(0)
-  const [dragging, setDragging] = useState(false)
-
-  const pointerStart = useRef<{ x: number; y: number } | null>(null)
-  const swipedPlace = useRef(false)
+  const [placeDir, setPlaceDir] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -144,22 +111,28 @@ export function PublicSharePage({ token }: { token: string }) {
   const isCollection = places.length > 1
   const place = places[activeIndex] ?? null
   const images = place?.images ?? []
-  const hero = images[photoIndex] ?? images[0] ?? null
   const canPrev = activeIndex > 0
   const canNext = activeIndex < places.length - 1
   const prevPlace = canPrev ? places[activeIndex - 1] : null
   const nextPlace = canNext ? places[activeIndex + 1] : null
 
+  const handleActiveIndexChange = (index: number, dir = 0) => {
+    if (index === activeIndex) return
+    setPlaceDir(dir)
+    setActiveIndex(index)
+  }
+
   const goPlace = (delta: number) => {
-    setActiveIndex((i) =>
-      Math.min(places.length - 1, Math.max(0, i + delta)),
+    if (!delta) return
+    const next = Math.min(
+      places.length - 1,
+      Math.max(0, activeIndex + delta),
     )
+    handleActiveIndexChange(next, delta)
   }
 
   useEffect(() => {
     setPhotoIndex(0)
-    setDragX(0)
-    setDragging(false)
   }, [activeIndex])
 
   // Desktop: arrow keys move between places (not while lightbox is open).
@@ -168,16 +141,16 @@ export function PublicSharePage({ token }: { token: string }) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
-        setActiveIndex((i) => Math.max(0, i - 1))
+        goPlace(-1)
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault()
-        setActiveIndex((i) => Math.min(places.length - 1, i + 1))
+        goPlace(1)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [isCollection, lightbox, places.length])
+  }, [isCollection, lightbox, places.length, activeIndex])
 
   const collectionTitle = useMemo(() => {
     if (!record) return ''
@@ -186,65 +159,12 @@ export function PublicSharePage({ token }: { token: string }) {
     return `${places.length} places to consider`
   }, [record, places])
 
-  const onHeroPointerDown = (e: React.PointerEvent) => {
-    if (!isCollection) return
-    // Mouse drag on desktop is secondary; buttons are the primary affordance.
-    if (e.pointerType === 'mouse') return
-    pointerStart.current = { x: e.clientX, y: e.clientY }
-    swipedPlace.current = false
-    setDragging(true)
-    ;(e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId)
-  }
-
-  const onHeroPointerMove = (e: React.PointerEvent) => {
-    if (!dragging || !pointerStart.current || !isCollection) return
-    const dx = e.clientX - pointerStart.current.x
-    const dy = e.clientY - pointerStart.current.y
-    if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 24) {
-      // Vertical scroll intent — abandon place swipe.
-      setDragX(0)
-      return
-    }
-    const maxPull = 88
-    let next = dx
-    if (!canPrev && dx > 0) next = dx * 0.28
-    if (!canNext && dx < 0) next = dx * 0.28
-    setDragX(Math.max(-maxPull, Math.min(maxPull, next)))
-  }
-
-  const finishHeroPointer = (e: React.PointerEvent) => {
-    if (!pointerStart.current) {
-      setDragging(false)
-      setDragX(0)
-      return
-    }
-    const dx = e.clientX - pointerStart.current.x
-    const dy = e.clientY - pointerStart.current.y
-    pointerStart.current = null
-    setDragging(false)
-    setDragX(0)
-
-    if (
-      isCollection &&
-      Math.abs(dx) >= PLACE_SWIPE_THRESHOLD &&
-      Math.abs(dx) > Math.abs(dy)
-    ) {
-      swipedPlace.current = true
-      if (dx < 0 && canNext) goPlace(1)
-      else if (dx > 0 && canPrev) goPlace(-1)
-    }
-  }
-
   const openLightboxFromHero = () => {
-    if (swipedPlace.current) {
-      swipedPlace.current = false
-      return
-    }
-    if (!images.length) return
+    if (!images.length || !place) return
     setLightbox({
       images,
       index: photoIndex,
-      title: place?.title,
+      title: place.title,
     })
   }
 
@@ -274,7 +194,6 @@ export function PublicSharePage({ token }: { token: string }) {
 
   const listingUrl = place.url.trim()
   const facts = bedsLine(place)
-  const typeLabel = homeTypeLabel(place)
 
   return (
     <div className="min-h-screen bg-mist pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-[calc(6.25rem+env(safe-area-inset-bottom))]">
@@ -309,7 +228,7 @@ export function PublicSharePage({ token }: { token: string }) {
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setActiveIndex(i)}
+                  onClick={() => handleActiveIndexChange(i, i > activeIndex ? 1 : i < activeIndex ? -1 : 0)}
                   className={cn(
                     'flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border',
                     motion.chip,
@@ -394,7 +313,7 @@ export function PublicSharePage({ token }: { token: string }) {
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  onClick={() => setActiveIndex(i)}
+                  onClick={() => handleActiveIndexChange(i, i > activeIndex ? 1 : i < activeIndex ? -1 : 0)}
                   className={cn(
                     'flex min-w-[10.5rem] max-w-[12rem] shrink-0 items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left',
                     motion.chip,
@@ -434,250 +353,112 @@ export function PublicSharePage({ token }: { token: string }) {
       ) : null}
 
       <main className="mx-auto max-w-5xl px-4 md:px-6">
-        <AnimatePresence mode="wait" initial={false}>
-          <m.div
-            key={place.id + activeIndex}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0, transition: tweenPanel }}
+        <ShareHeroCarousel
+          places={places}
+          activeIndex={activeIndex}
+          onActiveIndexChange={handleActiveIndexChange}
+          photoIndex={photoIndex}
+          onPhotoIndexChange={setPhotoIndex}
+          onOpenLightbox={openLightboxFromHero}
+        />
+
+        {images.length > 1 ? (
+          <ul className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {images.map((src, i) => (
+              <li key={src + i} className="shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPhotoIndex(i)}
+                  className={cn(
+                    'h-16 w-20 overflow-hidden rounded-xl border-2',
+                    motion.color,
+                    i === photoIndex
+                      ? 'border-sea'
+                      : 'border-transparent opacity-80 hover:opacity-100',
+                  )}
+                  aria-label={`Photo ${i + 1}`}
+                  aria-pressed={i === photoIndex}
+                >
+                  <img
+                    src={src}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <AnimatePresence mode="popLayout" initial={false} custom={placeDir}>
+          <m.section
+            key={place.id}
+            custom={placeDir}
+            initial={{ opacity: 0 }}
+            animate={{
+              opacity: 1,
+              transition: { duration: 0.18, ease: easeSnappy },
+            }}
             exit={{
               opacity: 0,
-              y: -6,
-              transition: { duration: 0.14, ease: easeSnappy },
+              transition: { duration: 0.1, ease: easeSnappy },
             }}
+            className="mt-6 space-y-5 pb-8 md:mt-8"
           >
-            {/* Looking-glass window */}
-            <div className="relative mt-3 overflow-hidden rounded-[1.5rem] bg-ink shadow-[var(--shadow-lift)] md:mt-5 md:rounded-[1.75rem]">
-              <div
-                className={cn(
-                  'relative aspect-[4/5] w-full touch-pan-y sm:aspect-[16/11] md:aspect-[16/10]',
-                  isCollection && 'md:touch-auto',
-                )}
-                onPointerDown={onHeroPointerDown}
-                onPointerMove={onHeroPointerMove}
-                onPointerUp={finishHeroPointer}
-                onPointerCancel={() => {
-                  pointerStart.current = null
-                  setDragging(false)
-                  setDragX(0)
-                }}
-              >
-                <m.div
-                  className="absolute inset-0"
-                  animate={{
-                    x: dragX,
-                    opacity: dragging ? 0.96 : 1,
-                  }}
-                  transition={
-                    dragging
-                      ? { type: 'tween', duration: 0 }
-                      : { type: 'spring', duration: 0.35, bounce: 0.12 }
-                  }
-                >
-                  {hero ? (
-                    <button
-                      type="button"
-                      className="absolute inset-0 block h-full w-full cursor-zoom-in"
-                      onClick={openLightboxFromHero}
-                      aria-label={
-                        images.length > 1
-                          ? `View ${images.length} photos`
-                          : 'View photo'
-                      }
-                    >
-                      <img
-                        src={hero}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        draggable={false}
-                        referrerPolicy="no-referrer"
-                      />
-                      <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-ink/55 via-ink/10 to-transparent" />
-                    </button>
-                  ) : (
-                    <div className="flex h-full items-center justify-center bg-folio text-sm font-bold text-ink-soft">
-                      No photo yet
-                    </div>
+            <div>
+              <p className="text-base text-ink-soft">{placeAddress(place)}</p>
+              {facts ? (
+                <p className="mt-1 text-base font-bold text-ink">{facts}</p>
+              ) : null}
+              <p className="mt-2 inline-flex flex-wrap items-center gap-2 text-sm">
+                <span
+                  className={cn(
+                    'rounded-full px-2.5 py-1 text-xs font-bold',
+                    place.pets === 'yes'
+                      ? 'bg-move/15 text-move'
+                      : place.pets === 'limited'
+                        ? 'bg-honey-soft text-honey'
+                        : 'bg-warn/15 text-warn',
                   )}
-                </m.div>
-
-                {/* Desktop: large photo-edge controls for place switching */}
-                {isCollection ? (
-                  <>
-                    <button
-                      type="button"
-                      disabled={!canPrev}
-                      onClick={() => goPlace(-1)}
-                      className={cn(
-                        'absolute left-3 top-1/2 z-20 hidden h-14 w-14 -translate-y-1/2 items-center justify-center rounded-2xl bg-panel/90 text-ink shadow-[var(--shadow-lift)] backdrop-blur-sm hover:bg-panel disabled:pointer-events-none disabled:opacity-35 md:inline-flex',
-                        motion.interactive,
-                      )}
-                      aria-label={
-                        prevPlace
-                          ? `Previous place: ${prevPlace.title || 'Untitled'}`
-                          : 'Previous place'
-                      }
-                      title={
-                        prevPlace
-                          ? `Previous: ${prevPlace.title || 'Untitled'}`
-                          : undefined
-                      }
-                    >
-                      <ChevronLeft className="h-7 w-7" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!canNext}
-                      onClick={() => goPlace(1)}
-                      className={cn(
-                        'absolute right-3 top-1/2 z-20 hidden h-14 w-14 -translate-y-1/2 items-center justify-center rounded-2xl bg-panel/90 text-ink shadow-[var(--shadow-lift)] backdrop-blur-sm hover:bg-panel disabled:pointer-events-none disabled:opacity-35 md:inline-flex',
-                        motion.interactive,
-                      )}
-                      aria-label={
-                        nextPlace
-                          ? `Next place: ${nextPlace.title || 'Untitled'}`
-                          : 'Next place'
-                      }
-                      title={
-                        nextPlace
-                          ? `Next: ${nextPlace.title || 'Untitled'}`
-                          : undefined
-                      }
-                    >
-                      <ChevronRight className="h-7 w-7" />
-                    </button>
-                  </>
+                >
+                  {PETS_LABEL[place.pets]}
+                </span>
+                {place.petsNote &&
+                (place.pets === 'yes' || place.pets === 'limited') ? (
+                  <span className="text-ink-soft">{place.petsNote}</span>
                 ) : null}
-
-                {images.length > 1 ? (
-                  <span className="pointer-events-none absolute right-3 top-3 z-10 inline-flex items-center gap-1 rounded-full bg-ink/70 px-2.5 py-1 text-[11px] font-bold text-white">
-                    <Images className="h-3.5 w-3.5" aria-hidden />
-                    {photoIndex + 1}/{images.length}
-                  </span>
-                ) : null}
-
-                {/* Mobile: place progress + swipe cue on the photo */}
-                {isCollection ? (
-                  <div className="pointer-events-none absolute inset-x-0 top-3 z-10 flex flex-col items-center gap-2 px-4 md:hidden">
-                    <div className="flex items-center gap-1.5">
-                      {places.map((_, i) => (
-                        <span
-                          key={`dot-${i}`}
-                          className={cn(
-                            'h-1.5 rounded-full transition-[width,background-color] duration-200',
-                            i === activeIndex
-                              ? 'w-5 bg-white'
-                              : 'w-1.5 bg-white/45',
-                          )}
-                        />
-                      ))}
-                    </div>
-                    <p className="rounded-full bg-ink/55 px-2.5 py-1 text-[11px] font-bold text-white/95 backdrop-blur-[2px]">
-                      Swipe for next place
-                    </p>
-                  </div>
-                ) : null}
-
-                {/* Sill — facts over the window edge */}
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-4 text-white sm:p-6 md:p-7">
-                  <p className="text-sm font-bold text-white/80">
-                    {place.listingKind === 'rent' ? 'Rental' : 'For sale'}
-                    {typeLabel ? ` · ${typeLabel}` : ''}
-                    {` · ${TIER_LABEL[place.tier]}`}
-                  </p>
-                  <h1 className="mt-1 font-display text-[1.85rem] font-semibold leading-[1.15] tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
-                    {place.title || 'Untitled place'}
-                  </h1>
-                  <p className="mt-2 text-2xl font-bold tabular-nums sm:text-3xl">
-                    {costLabel(place)}
-                  </p>
-                </div>
-              </div>
+              </p>
             </div>
 
-            {images.length > 1 ? (
-              <ul className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                {images.map((src, i) => (
-                  <li key={src + i} className="shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setPhotoIndex(i)}
-                      className={cn(
-                        'h-16 w-20 overflow-hidden rounded-xl border-2',
-                        motion.color,
-                        i === photoIndex
-                          ? 'border-sea'
-                          : 'border-transparent opacity-80 hover:opacity-100',
-                      )}
-                      aria-label={`Photo ${i + 1}`}
-                      aria-pressed={i === photoIndex}
-                    >
-                      <img
-                        src={src}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                      />
-                    </button>
-                  </li>
+            {place.proTags.length > 0 || place.concernTags.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {place.proTags.map((tag) => (
+                  <span
+                    key={`pro-${tag}`}
+                    className="rounded-full bg-move/15 px-2.5 py-1 text-xs font-bold text-move"
+                  >
+                    {tag}
+                  </span>
                 ))}
-              </ul>
+                {place.concernTags.map((tag) => (
+                  <span
+                    key={`con-${tag}`}
+                    className="rounded-full bg-honey-soft px-2.5 py-1 text-xs font-bold text-honey"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
             ) : null}
 
-            <section className="mt-6 space-y-5 pb-8 md:mt-8">
-              <div>
-                <p className="text-base text-ink-soft">{placeAddress(place)}</p>
-                {facts ? (
-                  <p className="mt-1 text-base font-bold text-ink">{facts}</p>
-                ) : null}
-                <p className="mt-2 inline-flex flex-wrap items-center gap-2 text-sm">
-                  <span
-                    className={cn(
-                      'rounded-full px-2.5 py-1 text-xs font-bold',
-                      place.pets === 'yes'
-                        ? 'bg-move/15 text-move'
-                        : place.pets === 'limited'
-                          ? 'bg-honey-soft text-honey'
-                          : 'bg-warn/15 text-warn',
-                    )}
-                  >
-                    {PETS_LABEL[place.pets]}
-                  </span>
-                  {place.petsNote &&
-                  (place.pets === 'yes' || place.pets === 'limited') ? (
-                    <span className="text-ink-soft">{place.petsNote}</span>
-                  ) : null}
-                </p>
-              </div>
-
-              {place.proTags.length > 0 || place.concernTags.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {place.proTags.map((tag) => (
-                    <span
-                      key={`pro-${tag}`}
-                      className="rounded-full bg-move/15 px-2.5 py-1 text-xs font-bold text-move"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                  {place.concernTags.map((tag) => (
-                    <span
-                      key={`con-${tag}`}
-                      className="rounded-full bg-honey-soft px-2.5 py-1 text-xs font-bold text-honey"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-
-              {!listingUrl ? (
-                <p className="rounded-2xl border border-dashed border-line bg-folio/60 px-4 py-3 text-sm text-ink-soft">
-                  No listing link was shared for this place.
-                </p>
-              ) : null}
-            </section>
-          </m.div>
+            {!listingUrl ? (
+              <p className="rounded-2xl border border-dashed border-line bg-folio/60 px-4 py-3 text-sm text-ink-soft">
+                No listing link was shared for this place.
+              </p>
+            ) : null}
+          </m.section>
         </AnimatePresence>
       </main>
 
