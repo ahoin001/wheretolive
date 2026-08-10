@@ -20,6 +20,7 @@ import {
   type TierReviewState,
 } from '../../../domain/places/tierReview'
 import { placeCityLabel } from '../../../domain/places/address'
+import { isPlaceTaken } from '../../../domain/places/status'
 import { motion } from '../../../lib/motion'
 import { cn } from '../../../lib/utils'
 import { OpenableImage } from '../ImageLightbox'
@@ -590,6 +591,11 @@ function BoardTile({
               {primaryCostLabel(place)}
             </span>
             <CompactPets pets={place.pets ?? 'no'} />
+            {isPlaceTaken(place) ? (
+              <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
+                Taken
+              </span>
+            ) : null}
           </p>
           {density === 'desktop' ? (
             <span className="mt-1.5 inline-flex items-center gap-0.5 text-[11px] font-bold text-sea-deep">
@@ -730,6 +736,11 @@ function MobileRowCard({
                 {primaryCostLabel(place)}
               </span>
               <CompactPets pets={place.pets ?? 'no'} />
+              {isPlaceTaken(place) ? (
+                <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
+                  Taken
+                </span>
+              ) : null}
             </p>
             <span className="mt-1.5 inline-flex items-center gap-0.5 text-xs font-bold text-sea-deep">
               {selectMode

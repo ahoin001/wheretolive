@@ -60,7 +60,14 @@ function splitLegacyTags(value: unknown): string[] {
 }
 
 function normalizeStatus(raw: unknown): PlaceStatus {
-  if (raw === 'visited' || raw === 'offer' || raw === 'none') return raw
+  if (
+    raw === 'visited' ||
+    raw === 'offer' ||
+    raw === 'taken' ||
+    raw === 'none'
+  ) {
+    return raw
+  }
   // legacy touring/saved/archived collapse to unmarked
   return 'none'
 }

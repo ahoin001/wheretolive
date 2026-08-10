@@ -11,9 +11,10 @@ import {
   Square,
   Trash2,
 } from 'lucide-react'
-import type { PetsPolicy, PlaceStatus, PlaceTier, SavedPlace } from '../../domain/types'
+import type { PetsPolicy, PlaceTier, SavedPlace } from '../../domain/types'
 import { formatMoney } from '../../domain/finance/calculations'
 import { isLikedByMe, placeImages } from '../../domain/places/filtering'
+import { PLACE_STATUS_LABEL, isPlaceTaken } from '../../domain/places/status'
 import { LIKER_SWATCHES, type LikerSwatch } from '../../domain/places/likes'
 import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
@@ -34,11 +35,8 @@ const TIER_LABEL: Record<PlaceTier, string> = {
   pass: 'Pass',
 }
 
-const STATUS_LABEL: Record<PlaceStatus, string> = {
-  none: 'Not marked',
-  visited: 'Visited',
-  offer: 'Offer',
-}
+const STATUS_LABEL = PLACE_STATUS_LABEL
+
 
 function PetsBadge({
   pets,
@@ -166,6 +164,7 @@ function PlaceCard({
   onDelete,
   onShareLink,
   onCopyToList,
+  onToggleTaken,
   copyMenu,
 }: {
   place: SavedPlace
@@ -184,12 +183,15 @@ function PlaceCard({
   onDelete: () => void
   onShareLink?: () => void
   onCopyToList?: () => void
+  /** Quick mark / clear taken without opening the full editor */
+  onToggleTaken?: () => void
   copyMenu?: ReactNode
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const compact = density === 'compact'
   const images = placeImages(place)
   const liked = isLikedByMe(place)
+  const taken = isPlaceTaken(place)
   const meTone = mySwatch ?? LIKER_SWATCHES[0]!
   const over =
     place.listingKind === 'rent' &&
@@ -229,6 +231,7 @@ function PlaceCard({
           ? 'rounded-xl sm:rounded-xl'
           : 'rounded-2xl sm:rounded-[1.25rem]',
         checked ? 'border-sea ring-2 ring-sea/25' : 'border-line sm:hover:border-sea/60',
+        taken && 'bg-warn/[0.04]',
       )}
     >
       {/* Media — full-bleed on mobile (Airbnb/Zillow style), rail on desktop */}
@@ -252,6 +255,11 @@ function PlaceCard({
               <Square className="h-4 w-4 text-ink-soft" />
             )}
           </button>
+        ) : null}
+        {taken ? (
+          <span className="pointer-events-none absolute bottom-2 left-2 z-10 rounded-full bg-warn px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white shadow-sm">
+            Taken
+          </span>
         ) : null}
         {images[0] ? (
           <OpenableImage
@@ -353,7 +361,16 @@ function PlaceCard({
                 ·
               </span>
               <span>{TIER_LABEL[place.tier]}</span>
-              {!compact && place.status !== 'none' ? (
+              {taken ? (
+                <>
+                  <span className="text-line" aria-hidden>
+                    ·
+                  </span>
+                  <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-warn">
+                    Taken
+                  </span>
+                </>
+              ) : !compact && place.status !== 'none' ? (
                 <>
                   <span className="text-line" aria-hidden>
                     ·
@@ -607,6 +624,21 @@ function PlaceCard({
                         >
                           <Link2 className="h-3.5 w-3.5" />
                           Guest link
+                        </button>
+                      ) : null}
+                      {onToggleTaken ? (
+                        <button
+                          type="button"
+                          className={cn(
+                            'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm font-bold hover:bg-folio',
+                            taken ? 'text-sea-deep' : 'text-warn',
+                          )}
+                          onClick={() => {
+                            setMenuOpen(false)
+                            onToggleTaken()
+                          }}
+                        >
+                          {taken ? 'Clear taken' : 'Mark as taken'}
                         </button>
                       ) : null}
                       {onCopyToList ? (

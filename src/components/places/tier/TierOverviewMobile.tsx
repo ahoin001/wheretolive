@@ -198,6 +198,11 @@ export function TierOverviewMobile({
                               {primaryCostLabel(place)}
                             </span>
                             <CompactPets pets={place.pets ?? 'no'} />
+                            {place.status === 'taken' ? (
+                              <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
+                                Taken
+                              </span>
+                            ) : null}
                           </p>
                         </div>
                         {selectMode ? (

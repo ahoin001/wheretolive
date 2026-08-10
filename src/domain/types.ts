@@ -51,7 +51,7 @@ export type PathLean = 'keep' | 'downsize' | 'mixed'
 export type WizardStepId = 'stay' | 'move' | 'picture'
 
 export type PlaceTier = 'dream' | 'strong' | 'maybe' | 'pass'
-export type PlaceStatus = 'none' | 'visited' | 'offer'
+export type PlaceStatus = 'none' | 'visited' | 'offer' | 'taken'
 export type PlaceListingKind = 'rent' | 'buy'
 /** Dwelling style for filters and the place form */
 export type PlaceHomeType =

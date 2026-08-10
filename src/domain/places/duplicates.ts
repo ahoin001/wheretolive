@@ -37,6 +37,7 @@ const STATUS_LABEL: Record<string, string> = {
   none: 'No status',
   visited: 'Visited',
   offer: 'Offer',
+  taken: 'Taken',
 }
 
 const PETS_LABEL: Record<PetsPolicy, string> = {

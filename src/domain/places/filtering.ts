@@ -11,6 +11,7 @@ import {
   matchesAddedFilter,
   type AddedFilter,
 } from './addedDate'
+import { isPlaceTaken } from './status'
 
 export const PLACE_TIERS: PlaceTier[] = ['dream', 'strong', 'maybe', 'pass']
 
@@ -118,6 +119,7 @@ export function countActiveFilters(
   mutualOnly: boolean,
   cityFilterActive: boolean,
   addedFilterActive: boolean,
+  hideTaken = false,
 ): number {
   return (
     (listSort !== 'recent' ? 1 : 0) +
@@ -126,7 +128,8 @@ export function countActiveFilters(
     (sqftFilter !== 'all' ? 1 : 0) +
     (mutualOnly ? 1 : 0) +
     (cityFilterActive ? 1 : 0) +
-    (addedFilterActive ? 1 : 0)
+    (addedFilterActive ? 1 : 0) +
+    (hideTaken ? 1 : 0)
   )
 }
 
@@ -185,6 +188,7 @@ export function sortPlaces(
   cityKeys: string[],
   mutualOnly: boolean,
   addedFilter: AddedFilter,
+  hideTaken = false,
 ): SavedPlace[] {
   let next = places.filter((p) => {
     if (!matchesPetsFilter(p, petsFilter)) return false
@@ -193,6 +197,7 @@ export function sortPlaces(
     if (!placeMatchesCities(p, cityKeys)) return false
     if (mutualOnly && !isMutualLike(p)) return false
     if (!matchesAddedFilter(p, addedFilter)) return false
+    if (hideTaken && isPlaceTaken(p)) return false
     return true
   })
 

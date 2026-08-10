@@ -9,6 +9,7 @@ import { Check, Search, Share2, UserMinus, X } from 'lucide-react'
 import type { CollaborationController } from '../../hooks/useCollaboration'
 import { searchProfiles } from '../../data/collaboration/api'
 import type { ProfileSearchResult } from '../../data/collaboration/types'
+import { isPlaceTaken } from '../../domain/places/status'
 import {
   bottomSheetVariants,
   overlayVariants,
@@ -109,6 +110,12 @@ export function ShareSheet({
 
   const shareCount =
     selectedPlaceIds.length > 0 ? selectedPlaceIds.length : collab.places.length
+  const takenInShare = (
+    selectedPlaceIds.length > 0
+      ? collab.places.filter((p) => selectedPlaceIds.includes(p.id))
+      : collab.places
+  ).filter(isPlaceTaken)
+
 
   const invite = async (userId: string) => {
     setError(null)
@@ -180,6 +187,16 @@ export function ShareSheet({
                       ? `Invite someone to collaborate on ${shareCount} selected place${shareCount === 1 ? '' : 's'}. Hearts stay personal for each person.`
                       : `Invite someone to the full list (${shareCount} place${shareCount === 1 ? '' : 's'}). Both can edit the board; likes remain individual.`}
                   </p>
+                  {takenInShare.length > 0 ? (
+                    <p className="mt-2 rounded-xl border border-warn/30 bg-honey-soft/70 px-3 py-2 text-sm font-bold text-ink">
+                      {takenInShare.length === 1
+                        ? '1 place in this invite is marked Taken.'
+                        : `${takenInShare.length} places in this invite are marked Taken.`}{' '}
+                      <span className="font-normal text-ink-soft">
+                        Hide taken in filters, or clear Taken, before sharing if you don’t want them on the board.
+                      </span>
+                    </p>
+                  ) : null}
                 </div>
                 <Button type="button" variant="ghost" onClick={onClose} aria-label="Close">
                   <X className="h-4 w-4" />

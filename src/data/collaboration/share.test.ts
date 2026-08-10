@@ -52,8 +52,13 @@ describe('share snapshots', () => {
     expect(snap).not.toHaveProperty('notes')
     expect(snap).not.toHaveProperty('favorite')
     expect(snap).not.toHaveProperty('likedBy')
-    expect(snap).not.toHaveProperty('status')
     expect(snap).not.toHaveProperty('tags')
+    expect(snap.status).toBe('visited')
+  })
+
+  it('keeps taken status on guest snapshots', () => {
+    const snap = toSharedPlaceSnapshot(samplePlace({ status: 'taken' }))
+    expect(snap.status).toBe('taken')
   })
 
   it('normalizes raw payload places from the API', () => {

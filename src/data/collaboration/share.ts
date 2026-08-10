@@ -2,11 +2,12 @@ import type {
   PetsPolicy,
   PlaceHomeType,
   PlaceListingKind,
+  PlaceStatus,
   PlaceTier,
   SavedPlace,
 } from '../../domain/types'
 
-/** Public snapshot of a place — no private notes, likes, or status. */
+/** Public snapshot of a place — no private notes or likes. Status is kept so Taken shows for guests. */
 export type SharedPlaceSnapshot = {
   id: string
   title: string
@@ -28,6 +29,7 @@ export type SharedPlaceSnapshot = {
   proTags: string[]
   concernTags: string[]
   tier: PlaceTier
+  status: PlaceStatus
   images: string[]
 }
 
@@ -103,6 +105,12 @@ export function toSharedPlaceSnapshot(place: SavedPlace): SharedPlaceSnapshot {
     )
       ? place.tier
       : 'maybe',
+    status:
+      place.status === 'visited' ||
+      place.status === 'offer' ||
+      place.status === 'taken'
+        ? place.status
+        : 'none',
     images: Array.isArray(place.images) ? place.images.filter(Boolean) : [],
   }
 }
@@ -144,6 +152,12 @@ export function normalizeSharedPlace(raw: unknown): SharedPlaceSnapshot | null {
     )
       ? (p.tier as PlaceTier)
       : 'maybe',
+    status:
+      p.status === 'visited' ||
+      p.status === 'offer' ||
+      p.status === 'taken'
+        ? p.status
+        : 'none',
     images: asStringArray(p.images),
   }
 }

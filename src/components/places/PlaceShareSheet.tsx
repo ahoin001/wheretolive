@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Copy, Link2, Share2 } from 'lucide-react'
 import {
   createPlaceShareLink,
@@ -7,6 +7,11 @@ import {
 } from '../../data/collaboration/api'
 import { absoluteShareUrl } from '../../data/collaboration/share'
 import type { SavedPlace } from '../../domain/types'
+import {
+  availablePlacesIn,
+  isPlaceTaken,
+  takenPlacesIn,
+} from '../../domain/places/status'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
@@ -50,14 +55,23 @@ export function PlaceShareSheet({
   const [debugCopied, setDebugCopied] = useState(false)
   const [url, setUrl] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  /** When taken places are in the selection, exclude them from the guest link by default. */
+  const [includeTaken, setIncludeTaken] = useState(false)
 
-  const isCollection = places.length > 1
+  const taken = useMemo(() => takenPlacesIn(places), [places])
+  const available = useMemo(() => availablePlacesIn(places), [places])
+  const hasTaken = taken.length > 0
+  const sharePlaces = useMemo(() => {
+    if (!hasTaken || includeTaken) return places
+    return available
+  }, [available, hasTaken, includeTaken, places])
+
+  const isCollection = sharePlaces.length > 1
   const title =
-    places.length === 1
-      ? places[0]?.title || 'Untitled place'
-      : `${places.length} places`
-
-  const placeKey = places.map((p) => p.id).join(',')
+    sharePlaces.length === 1
+      ? sharePlaces[0]?.title || 'Untitled place'
+      : `${sharePlaces.length} places`
+  const placeKey = `${sharePlaces.map((p) => p.id).join(',')}|${includeTaken ? '1' : '0'}`
 
   useEffect(() => {
     if (!open) {
@@ -67,13 +81,23 @@ export function PlaceShareSheet({
       setDebugCopied(false)
       setUrl(null)
       setCopied(false)
+      setIncludeTaken(false)
     }
   }, [open])
 
   useEffect(() => {
     if (!open || places.length === 0) return
+    if (sharePlaces.length === 0) {
+      setBusy(false)
+      setUrl(null)
+      setError(
+        'Every selected place is marked Taken. Include taken places, or clear Taken first.',
+      )
+      return
+    }
+
     let cancelled = false
-    const snapshot = [...places]
+    const snapshot = [...sharePlaces]
     const collection = snapshot.length > 1
     async function create() {
       if (!isSupabaseConfigured) {
@@ -121,7 +145,7 @@ export function PlaceShareSheet({
     return () => {
       cancelled = true
     }
-    // placeKey captures identity; places read via snapshot above
+    // placeKey captures share payload; places read via snapshot above
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, placeKey])
 
@@ -150,26 +174,61 @@ export function PlaceShareSheet({
           needed. Personal notes and likes stay off the share.
         </p>
 
+        {hasTaken ? (
+          <div className="rounded-2xl border border-warn/35 bg-honey-soft/70 px-4 py-3">
+            <p className="text-sm font-bold text-ink">
+              {taken.length === 1
+                ? '1 place is marked Taken'
+                : `${taken.length} places are marked Taken`}
+            </p>
+            <p className="mt-1 text-sm text-ink-soft">
+              {includeTaken
+                ? 'Taken places will be on this guest link.'
+                : available.length > 0
+                  ? `Guest link will leave them out (${available.length} available).`
+                  : 'Nothing left to share unless you include taken places.'}
+            </p>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includeTaken}
+              onClick={() => setIncludeTaken((v) => !v)}
+              className={cn(
+                'mt-3 inline-flex h-9 items-center gap-2 rounded-full border px-3 text-xs font-bold',
+                motion.chip,
+                includeTaken
+                  ? 'border-warn bg-warn text-white'
+                  : 'border-line bg-panel text-ink',
+              )}
+            >
+              Include taken
+            </button>
+          </div>
+        ) : null}
+
         <div className="rounded-2xl border border-line bg-folio/70 px-4 py-3">
           <p className="text-xs font-bold uppercase tracking-wide text-ink-soft">
             Sharing
           </p>
           <p className="mt-1 font-display text-lg font-semibold text-ink">
-            {title}
+            {sharePlaces.length === 0 ? 'No places to share' : title}
           </p>
-          {isCollection ? (
+          {sharePlaces.length > 1 ? (
             <ol className="mt-2 list-decimal space-y-1 pl-4 text-sm text-ink-soft">
-              {places.slice(0, 8).map((p) => (
+              {sharePlaces.slice(0, 8).map((p) => (
                 <li key={p.id} className="truncate pl-1">
                   {p.title || 'Untitled'}
+                  {isPlaceTaken(p) ? ' · Taken' : ''}
                 </li>
               ))}
-              {places.length > 8 ? (
+              {sharePlaces.length > 8 ? (
                 <li className="list-none pl-1 text-ink-soft">
-                  +{places.length - 8} more
+                  +{sharePlaces.length - 8} more
                 </li>
               ) : null}
             </ol>
+          ) : sharePlaces.length === 1 && isPlaceTaken(sharePlaces[0]!) ? (
+            <p className="mt-1 text-sm font-bold text-warn">Marked Taken</p>
           ) : null}
         </div>
 
@@ -216,7 +275,7 @@ export function PlaceShareSheet({
           <div className="space-y-3">
             <label className="block">
               <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
-                Link
+                Guest link
               </span>
               <input
                 readOnly
@@ -225,21 +284,17 @@ export function PlaceShareSheet({
                 onFocus={(e) => e.currentTarget.select()}
               />
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2">
               <Button
                 type="button"
                 variant="honey"
-                className="min-h-11 flex-1"
+                className="min-h-11 flex-1 rounded-xl"
                 onClick={async () => {
                   const ok = await copyText(url)
                   if (ok) setCopied(true)
                 }}
               >
-                {copied ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
+                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copied ? 'Copied' : 'Copy link'}
               </Button>
               {typeof navigator !== 'undefined' &&
@@ -247,43 +302,26 @@ export function PlaceShareSheet({
                 <Button
                   type="button"
                   variant="secondary"
-                  className="min-h-11"
+                  className="min-h-11 rounded-xl px-4"
                   onClick={() => {
                     void navigator.share({
                       title: title,
-                      text: 'Take a look at this place',
                       url,
                     })
                   }}
+                  aria-label="Share link"
                 >
                   <Share2 className="h-4 w-4" />
-                  Share…
                 </Button>
               ) : null}
             </div>
-            <a
-              href={url}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(
-                'inline-flex items-center gap-1.5 text-sm font-bold text-sea-deep',
-                motion.color,
-              )}
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              Preview guest view
-            </a>
           </div>
+        ) : !busy && !error ? (
+          <p className="flex items-center gap-2 text-sm text-ink-soft">
+            <Link2 className="h-4 w-4" />
+            Preparing guest link…
+          </p>
         ) : null}
-
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-full min-h-11"
-          onClick={onClose}
-        >
-          Done
-        </Button>
       </div>
     </BottomSheet>
   )

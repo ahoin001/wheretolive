@@ -169,6 +169,7 @@ const STATUS_LABEL: Record<PlaceStatus, string> = {
   none: 'Not marked',
   visited: 'Visited',
   offer: 'Offer',
+  taken: 'Taken',
 }
 
 type PlaceForm = Omit<SavedPlace, 'id' | 'createdAt' | 'updatedAt'>
@@ -237,7 +238,11 @@ function formFromPlace(place: SavedPlace): PlaceForm {
     concernTags: rest.concernTags ?? [],
     images: rest.images ?? [],
     status:
-      rest.status === 'visited' || rest.status === 'offer' ? rest.status : 'none',
+      rest.status === 'visited' ||
+      rest.status === 'offer' ||
+      rest.status === 'taken'
+        ? rest.status
+        : 'none',
   }
 }
 
@@ -269,6 +274,7 @@ export function PlacesWorkspace({
   const [dupWizardOpen, setDupWizardOpen] = useState(false)
   const [dupBusy, setDupBusy] = useState(false)
   const [mutualOnly, setMutualOnly] = useState(false)
+  const [hideTaken, setHideTaken] = useState(false)
   const [cityKeys, setCityKeys] = useState<string[]>([])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -474,6 +480,7 @@ export function PlacesWorkspace({
       activeCityKeys,
       mutualOnly,
       addedFilter,
+      hideTaken,
     )
   }, [
     allPlaces,
@@ -484,6 +491,7 @@ export function PlacesWorkspace({
     activeCityKeys,
     mutualOnly,
     addedFilter,
+    hideTaken,
   ])
 
   const boardPlaces = useMemo(() => {
@@ -492,7 +500,8 @@ export function PlacesWorkspace({
         matchesPetsFilter(p, petsFilter) &&
         matchesHomeTypeFilter(p, homeTypeFilter) &&
         matchesSqftFilter(p, sqftFilter) &&
-        matchesAddedFilter(p, addedFilter),
+        matchesAddedFilter(p, addedFilter) &&
+        !(hideTaken && p.status === 'taken'),
     )
     if (mutualOnly) base = base.filter(isMutualLike)
     if (activeCityKeys.length) {
@@ -507,6 +516,7 @@ export function PlacesWorkspace({
     mutualOnly,
     activeCityKeys,
     addedFilter,
+    hideTaken,
   ])
 
   /** Places in the order the user selected them (for share / copy / guest links). */
@@ -538,6 +548,7 @@ export function PlacesWorkspace({
     homeTypeFilterActive ||
     sqftFilterActive ||
     mutualOnly ||
+    hideTaken ||
     cityFilterActive ||
     addedFilterActive
   const activeFilterCount = countActiveFilters(
@@ -548,6 +559,7 @@ export function PlacesWorkspace({
     mutualOnly,
     cityFilterActive,
     addedFilterActive,
+    hideTaken,
   )
 
   const clearAllFilters = () => {
@@ -557,7 +569,17 @@ export function PlacesWorkspace({
     setSqftFilter('all')
     setAddedFilter(DEFAULT_ADDED_FILTER)
     setMutualOnly(false)
+    setHideTaken(false)
     setCityKeys([])
+  }
+
+  const toggleTaken = (place: SavedPlace) => {
+    const now = new Date().toISOString()
+    persistPlace({
+      ...place,
+      status: place.status === 'taken' ? 'none' : 'taken',
+      updatedAt: now,
+    })
   }
 
   const toggleLike = (place: SavedPlace) => {
@@ -794,6 +816,21 @@ export function PlacesWorkspace({
               Mutual
             </button>
           ) : null}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={hideTaken}
+            onClick={() => setHideTaken((v) => !v)}
+            className={cn(
+              'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
+              motion.chip,
+              hideTaken
+                ? 'border-warn bg-warn text-white'
+                : 'border-line bg-panel text-ink hover:border-sea',
+            )}
+          >
+            Hide taken
+          </button>
         </div>
       </div>
 
@@ -1382,6 +1419,7 @@ export function PlacesWorkspace({
                           ? `d:${addedFilter.days}`
                           : addedFilter.type,
                     mutualOnly ? '1' : '0',
+                    hideTaken ? '1' : '0',
                     activeCityKeys.join(','),
                     String(listPlaces.length),
                   ].join('|')}
@@ -1411,6 +1449,7 @@ export function PlacesWorkspace({
                           ? () => setLinkSharePlaces([place])
                           : undefined
                       }
+                      onToggleTaken={() => toggleTaken(place)}
                       onCopyToList={
                         collab.cloudActive
                           ? () =>
@@ -1977,10 +2016,11 @@ export function PlacesWorkspace({
                             { value: 'none', label: 'Not marked' },
                             { value: 'visited', label: 'Visited' },
                             { value: 'offer', label: 'Offer' },
+                            { value: 'taken', label: 'Taken' },
                           ] as { value: PlaceStatus; label: string }[]}
                           value={form.status}
                           onChange={(status) => setForm((f) => ({ ...f, status }))}
-                          columns={3}
+                          columns={4}
                         />
                       </div>
                     </FormSection>

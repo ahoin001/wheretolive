@@ -315,10 +315,16 @@ export function ShareHeroCarousel({
             {place.listingKind === 'rent' ? 'Rental' : 'For sale'}
             {typeLabel ? ` · ${typeLabel}` : ''}
             {` · ${TIER_LABEL[place.tier]}`}
+            {place.status === 'taken' ? ' · Taken' : ''}
           </p>
           <h1 className="mt-1 font-display text-[1.85rem] font-semibold leading-[1.15] tracking-[-0.03em] text-balance sm:text-4xl md:text-5xl">
             {place.title || 'Untitled place'}
           </h1>
+          {place.status === 'taken' ? (
+            <p className="mt-2 inline-flex rounded-full bg-warn px-2.5 py-1 text-xs font-bold uppercase tracking-wide text-white">
+              Taken
+            </p>
+          ) : null}
           <p className="mt-2 text-2xl font-bold tabular-nums sm:text-3xl">
             {costLabel(place)}
           </p>

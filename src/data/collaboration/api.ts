@@ -128,7 +128,11 @@ function normalizePlace(raw: Record<string, unknown>): SavedPlace {
           ? Math.max(0, Math.floor(raw.board_order))
           : 0,
     status:
-      raw.status === 'visited' || raw.status === 'offer' ? raw.status : 'none',
+      raw.status === 'visited' ||
+      raw.status === 'offer' ||
+      raw.status === 'taken'
+        ? raw.status
+        : 'none',
     favorite: likedByMe,
     likedByMe,
     likedAt: likedByMe ? likedAt : null,
