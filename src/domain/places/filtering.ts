@@ -71,6 +71,39 @@ export function isMutualLike(place: SavedPlace): boolean {
   return ids.length >= 2
 }
 
+/** Collapse whitespace and lowercase for place name / address search. */
+export function normalizePlaceSearchQuery(query: string): string {
+  return query.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/**
+ * Match title or address fields (street, city, state, zip, location display).
+ * Empty query matches everything. Multi-word queries require every token.
+ */
+export function matchesPlaceSearch(
+  place: Pick<
+    SavedPlace,
+    'title' | 'street' | 'city' | 'state' | 'zip' | 'location'
+  >,
+  query: string,
+): boolean {
+  const q = normalizePlaceSearchQuery(query)
+  if (!q) return true
+  const haystack = [
+    place.title,
+    place.street,
+    place.city,
+    place.state,
+    place.zip,
+    place.location,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  const tokens = q.split(' ').filter(Boolean)
+  return tokens.every((token) => haystack.includes(token))
+}
+
 export function ms(iso: string | null | undefined): number {
   if (!iso) return 0
   const n = Date.parse(iso)
@@ -189,6 +222,7 @@ export function sortPlaces(
   mutualOnly: boolean,
   addedFilter: AddedFilter,
   hideTaken = false,
+  searchQuery = '',
 ): SavedPlace[] {
   let next = places.filter((p) => {
     if (!matchesPetsFilter(p, petsFilter)) return false
@@ -198,6 +232,7 @@ export function sortPlaces(
     if (mutualOnly && !isMutualLike(p)) return false
     if (!matchesAddedFilter(p, addedFilter)) return false
     if (hideTaken && isPlaceTaken(p)) return false
+    if (!matchesPlaceSearch(p, searchQuery)) return false
     return true
   })
 

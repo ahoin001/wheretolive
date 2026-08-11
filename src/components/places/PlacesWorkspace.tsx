@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+﻿import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
   Check,
   CheckSquare,
@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
   Share2,
   SlidersHorizontal,
   Square,
@@ -63,6 +64,7 @@ import {
   matchesHomeTypeFilter,
   matchesPetsFilter,
   matchesSqftFilter,
+  normalizePlaceSearchQuery,
   placeImages,
   placeMatchesCities,
   placesInIdOrder,
@@ -264,6 +266,8 @@ export function PlacesWorkspace({
   const [imageDraft, setImageDraft] = useState('')
   const [formOpen, setFormOpen] = useState(false)
   const [listSort, setListSort] = useState<ListSort>('recent')
+  const [listSearch, setListSearch] = useState('')
+  const deferredListSearch = useDeferredValue(listSearch)
   const [petsFilter, setPetsFilter] = useState<PetsFilter>(DEFAULT_PETS_FILTER)
   const [homeTypeFilter, setHomeTypeFilter] = useState<HomeTypeFilter>(
     DEFAULT_HOME_TYPE_FILTER,
@@ -481,6 +485,7 @@ export function PlacesWorkspace({
       mutualOnly,
       addedFilter,
       hideTaken,
+      deferredListSearch,
     )
   }, [
     allPlaces,
@@ -492,6 +497,7 @@ export function PlacesWorkspace({
     mutualOnly,
     addedFilter,
     hideTaken,
+    deferredListSearch,
   ])
 
   const boardPlaces = useMemo(() => {
@@ -543,6 +549,7 @@ export function PlacesWorkspace({
   const homeTypeFilterActive = homeTypeFilter !== 'all'
   const sqftFilterActive = sqftFilter !== 'all'
   const addedFilterActive = isAddedFilterActive(addedFilter)
+  const listSearchActive = Boolean(normalizePlaceSearchQuery(listSearch))
   const hasActiveFilters =
     petsFilterActive ||
     homeTypeFilterActive ||
@@ -550,7 +557,8 @@ export function PlacesWorkspace({
     mutualOnly ||
     hideTaken ||
     cityFilterActive ||
-    addedFilterActive
+    addedFilterActive ||
+    (view === 'list' && listSearchActive)
   const activeFilterCount = countActiveFilters(
     listSort,
     petsFilter,
@@ -560,7 +568,7 @@ export function PlacesWorkspace({
     cityFilterActive,
     addedFilterActive,
     hideTaken,
-  )
+  ) + (view === 'list' && listSearchActive ? 1 : 0)
 
   const clearAllFilters = () => {
     setListSort('recent')
@@ -571,6 +579,7 @@ export function PlacesWorkspace({
     setMutualOnly(false)
     setHideTaken(false)
     setCityKeys([])
+    setListSearch('')
   }
 
   const toggleTaken = (place: SavedPlace) => {
@@ -1336,6 +1345,33 @@ export function PlacesWorkspace({
         <div className="min-w-0 p-3 md:p-5">
           {view === 'list' ? (
             <div className="space-y-3">
+              <label className="relative block min-w-0">
+                <span className="sr-only">Search places by name or address</span>
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-soft"
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                  placeholder="Search by name or address"
+                  autoComplete="off"
+                  enterKeyHint="search"
+                  className="h-11 w-full rounded-xl border border-line bg-panel pl-10 pr-10 text-sm font-bold text-ink placeholder:font-medium placeholder:text-ink-soft focus-visible:border-sea focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sea/25 md:h-10"
+                />
+                {listSearch ? (
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-ink-soft hover:bg-folio hover:text-ink"
+                    onClick={() => setListSearch('')}
+                    aria-label="Clear search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </label>
+
               {/* Desktop filters stay inline; mobile uses Filters sheet */}
               <div className="hidden min-w-0 rounded-xl border border-line bg-folio/50 px-3.5 py-2.5 md:block">
                 <div className="flex min-w-0 flex-col gap-2">
@@ -1388,17 +1424,25 @@ export function PlacesWorkspace({
                 ) : (
                   <div className="rounded-2xl border border-dashed border-line bg-folio/60 px-6 py-10 text-center">
                     <p className="font-display text-xl font-semibold text-ink">
-                      No places match these filters
+                      {listSearchActive
+                        ? 'No places match this search'
+                        : 'No places match these filters'}
                     </p>
                     <p className="mt-2 text-ink-soft">
-                      Try All under Pets, pick more cities, or reset filters.
+                      {listSearchActive
+                        ? 'Try another name, street, city, or ZIP — or clear search.'
+                        : 'Try All under Pets, pick more cities, or reset filters.'}
                     </p>
                     <Button
                       className="mt-4"
                       variant="secondary"
-                      onClick={clearAllFilters}
+                      onClick={
+                        listSearchActive
+                          ? () => setListSearch('')
+                          : clearAllFilters
+                      }
                     >
-                      Clear filters
+                      {listSearchActive ? 'Clear search' : 'Clear filters'}
                     </Button>
                   </div>
                 )
@@ -1420,6 +1464,7 @@ export function PlacesWorkspace({
                           : addedFilter.type,
                     mutualOnly ? '1' : '0',
                     hideTaken ? '1' : '0',
+                    normalizePlaceSearchQuery(deferredListSearch),
                     activeCityKeys.join(','),
                     String(listPlaces.length),
                   ].join('|')}

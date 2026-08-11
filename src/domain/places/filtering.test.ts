@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   idsInTierDisplayOrder,
+  matchesPlaceSearch,
   placesInIdOrder,
   matchesPetsFilter,
   sortPlaces,
@@ -37,6 +38,34 @@ describe('matchesPetsFilter', () => {
     expect(matchesPetsFilter({ pets: 'no' }, 'allowed')).toBe(false)
     expect(matchesPetsFilter({ pets: 'no' }, 'none')).toBe(true)
     expect(matchesPetsFilter({ pets: 'yes' }, 'all')).toBe(true)
+  })
+})
+
+describe('matchesPlaceSearch', () => {
+  const place = {
+    title: 'Modern Town House',
+    street: '10398 Orange Ct',
+    city: 'Pembroke Pines',
+    state: 'FL',
+    zip: '33025',
+    location: '10398 Orange Ct, Pembroke Pines, FL 33025',
+  }
+
+  it('matches empty query', () => {
+    expect(matchesPlaceSearch(place, '')).toBe(true)
+    expect(matchesPlaceSearch(place, '   ')).toBe(true)
+  })
+
+  it('matches title tokens', () => {
+    expect(matchesPlaceSearch(place, 'town')).toBe(true)
+    expect(matchesPlaceSearch(place, 'modern house')).toBe(true)
+    expect(matchesPlaceSearch(place, 'cabin')).toBe(false)
+  })
+
+  it('matches address pieces', () => {
+    expect(matchesPlaceSearch(place, 'orange')).toBe(true)
+    expect(matchesPlaceSearch(place, 'pembroke 33025')).toBe(true)
+    expect(matchesPlaceSearch(place, 'davie')).toBe(false)
   })
 })
 
@@ -83,5 +112,59 @@ describe('sortPlaces', () => {
       { type: 'all' },
     )
     expect(sorted.map((p) => p.id)).toEqual(['new', 'old'])
+  })
+
+  it('filters by search query', () => {
+    const places = [
+      {
+        id: 'a',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+        title: 'Lakeview Condo',
+        street: '1 Main St',
+        city: 'Miami',
+        state: 'FL',
+        zip: '33101',
+        location: '1 Main St, Miami, FL 33101',
+        pets: 'no',
+        homeType: null,
+        sqft: null,
+        listingKind: 'rent',
+        monthlyEstimate: 1000,
+        likedByMe: false,
+        favorite: false,
+      },
+      {
+        id: 'b',
+        createdAt: '2024-02-01T00:00:00.000Z',
+        updatedAt: '2024-02-01T00:00:00.000Z',
+        title: 'Yard Home',
+        street: '9 Palm Dr',
+        city: 'Davie',
+        state: 'FL',
+        zip: '33314',
+        location: '9 Palm Dr, Davie, FL 33314',
+        pets: 'yes',
+        homeType: null,
+        sqft: null,
+        listingKind: 'rent',
+        monthlyEstimate: 2000,
+        likedByMe: false,
+        favorite: false,
+      },
+    ] as never
+    const found = sortPlaces(
+      places,
+      'recent',
+      'all',
+      'all',
+      'all',
+      [],
+      false,
+      { type: 'all' },
+      false,
+      'davie',
+    )
+    expect(found.map((p) => p.id)).toEqual(['b'])
   })
 })
