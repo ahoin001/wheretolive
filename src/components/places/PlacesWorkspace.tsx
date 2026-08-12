@@ -98,6 +98,7 @@ import {
   primaryCostLabel,
 } from './PlaceCard'
 import { ChipPicker, FormSection } from './PlaceEditor'
+import { ListingUrlAssist } from './ListingUrlAssist'
 import { CityFilterMenu, PetsFilterControl } from './PlaceFilters'
 import { SelectionDock, SelectionDockSpacer } from './SelectionDock'
 import { PendingInvitesBanner, ShareSheet } from './ShareSheet'
@@ -1810,6 +1811,52 @@ export function PlacesWorkspace({
 
                 <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 md:px-6">
                   <div className="mx-auto max-w-xl space-y-5 pb-8">
+                    <ListingUrlAssist
+                      key={`listing-assist-${editingId ?? 'new'}-${formOpen ? 'open' : 'closed'}`}
+                      form={{
+                        url: form.url,
+                        listingKind: form.listingKind,
+                        homeType: form.homeType,
+                        title: form.title,
+                        street: form.street,
+                        city: form.city,
+                        state: form.state,
+                        zip: form.zip,
+                        monthlyEstimate: form.monthlyEstimate,
+                        price: form.price,
+                        bedrooms: form.bedrooms,
+                        bathrooms: form.bathrooms,
+                        sqft: form.sqft,
+                        pets: form.pets,
+                        petsNote: form.petsNote,
+                        images: form.images,
+                        notes: form.notes,
+                      }}
+                      onApply={(next, message) => {
+                        setForm((f) => ({
+                          ...f,
+                          url: next.url,
+                          listingKind: next.listingKind,
+                          homeType: next.homeType,
+                          title: next.title,
+                          street: next.street,
+                          city: next.city,
+                          state: next.state,
+                          zip: next.zip,
+                          monthlyEstimate: next.monthlyEstimate,
+                          price: next.price,
+                          bedrooms: next.bedrooms,
+                          bathrooms: next.bathrooms,
+                          sqft: next.sqft,
+                          pets: next.pets,
+                          petsNote: next.petsNote,
+                          images: next.images,
+                          notes: next.notes,
+                        }))
+                        setListToast(message)
+                      }}
+                    />
+
                     {/* Type */}
                     <FormSection>
                       <ChoiceGroup
@@ -1862,7 +1909,11 @@ export function PlacesWorkspace({
                     {/* Basics */}
                     <FormSection>
                       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <Field label="Listing URL" className="sm:col-span-2">
+                        <Field
+                          label="Listing URL"
+                          className="sm:col-span-2"
+                          hint="Filled automatically from the paste link above."
+                        >
                           <TextInput
                             value={form.url}
                             onChange={(e) =>
