@@ -1,16 +1,9 @@
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { extractListingFromHtml, isBlockedListingHtml } from './listingPageExtract'
-
-const dir = dirname(fileURLToPath(import.meta.url))
+import realtorNextSlim from './fixtures/realtor-next-slim.json'
 
 describe('extractListingFromHtml (Realtor fixture)', () => {
   it('reads rent, beds, pets, and photos from __NEXT_DATA__', () => {
-    const slim = JSON.parse(
-      readFileSync(join(dir, 'fixtures/realtor-next-slim.json'), 'utf8'),
-    )
     const html = `<!doctype html><html><head>
       <meta property="og:title" content="20861 NW 3rd Ln Unit 20861, Pembroke Pines, FL 33029 | Realtor.com" />
       <script type="application/ld+json">${JSON.stringify({
@@ -28,7 +21,7 @@ describe('extractListingFromHtml (Realtor fixture)', () => {
         image:
           'https://ap.rdcpix.com/5fada078f2a845d37af6de1ed1527f43l-m3396764445od-w640_h480.jpg',
       })}</script>
-      <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(slim)}</script>
+      <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(realtorNextSlim)}</script>
     </head><body></body></html>`
 
     const draft = extractListingFromHtml(
