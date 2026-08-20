@@ -1,9 +1,57 @@
 import { describe, expect, it } from 'vitest'
-import { extractListingFromHtml, isBlockedListingHtml } from './listingPageExtract'
+import {
+  extractListingFromHtml,
+  extractRealtorSlideImages,
+  isBlockedListingHtml,
+  upgradeRealtorImageUrl,
+} from './listingPageExtract'
 import realtorNextSlim from './fixtures/realtor-next-slim.json'
 
+describe('upgradeRealtorImageUrl', () => {
+  it('upgrades s.jpg thumbs to gallery webp', () => {
+    expect(
+      upgradeRealtorImageUrl(
+        'https://ap.rdcpix.com/5fada078f2a845d37af6de1ed1527f43l-m3396764445s.jpg',
+      ),
+    ).toBe(
+      'https://ap.rdcpix.com/5fada078f2a845d37af6de1ed1527f43l-m3396764445rd-w1280_h960.webp',
+    )
+  })
+
+  it('upgrades od-w640 thumbs', () => {
+    expect(
+      upgradeRealtorImageUrl(
+        'https://ap.rdcpix.com/abc123l-m4272763003od-w640_h480.jpg',
+      ),
+    ).toBe(
+      'https://ap.rdcpix.com/abc123l-m4272763003rd-w1280_h960.webp',
+    )
+  })
+
+  it('leaves gallery-sized urls alone', () => {
+    const large =
+      'https://ap.rdcpix.com/7b36f7160648c280de5ed24c4aee3ff3l-m4272763003rd-w1280_h960.webp'
+    expect(upgradeRealtorImageUrl(large)).toBe(large)
+  })
+})
+
+describe('extractRealtorSlideImages', () => {
+  it('reads photo-slide-image srcs', () => {
+    const html = `
+      <img data-testid="photo-slide-image" alt=" featured at 12643 NW 32nd Ct"
+        src="https://ap.rdcpix.com/7b36f7160648c280de5ed24c4aee3ff3l-m4272763003rd-w1280_h960.webp"
+        fetchpriority="high">
+      <img src="https://ap.rdcpix.com/otherl-m111s.jpg" data-testid="photo-slide-image" alt="2" />
+    `
+    const imgs = extractRealtorSlideImages(html)
+    expect(imgs).toHaveLength(2)
+    expect(imgs[0]).toContain('rd-w1280_h960.webp')
+    expect(imgs[1]).toContain('m111')
+  })
+})
+
 describe('extractListingFromHtml (Realtor fixture)', () => {
-  it('reads rent, beds, pets, and photos from __NEXT_DATA__', () => {
+  it('reads rent, beds, pets, and gallery-sized photos', () => {
     const html = `<!doctype html><html><head>
       <meta property="og:title" content="20861 NW 3rd Ln Unit 20861, Pembroke Pines, FL 33029 | Realtor.com" />
       <script type="application/ld+json">${JSON.stringify({
@@ -22,7 +70,11 @@ describe('extractListingFromHtml (Realtor fixture)', () => {
           'https://ap.rdcpix.com/5fada078f2a845d37af6de1ed1527f43l-m3396764445od-w640_h480.jpg',
       })}</script>
       <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(realtorNextSlim)}</script>
-    </head><body></body></html>`
+    </head><body>
+      <img data-testid="photo-slide-image"
+        src="https://ap.rdcpix.com/5fada078f2a845d37af6de1ed1527f43l-m3396764445rd-w1280_h960.webp"
+        alt="featured" />
+    </body></html>`
 
     const draft = extractListingFromHtml(
       html,
@@ -39,6 +91,10 @@ describe('extractListingFromHtml (Realtor fixture)', () => {
     expect(draft!.pets).toBe('yes')
     expect(draft!.city).toBe('Pembroke Pines')
     expect(draft!.images?.length).toBeGreaterThan(0)
+    expect(
+      draft!.images!.every((u) => u.includes('rd-w1280_h960.webp')),
+    ).toBe(true)
+    expect(draft!.images!.some((u) => /s\.jpe?g$/i.test(u))).toBe(false)
   })
 })
 

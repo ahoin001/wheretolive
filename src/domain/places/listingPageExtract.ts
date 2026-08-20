@@ -120,6 +120,43 @@ function mapPets(
   return {}
 }
 
+/** Gallery-sized Realtor CDN suffix (matches photo-slide-image srcs). */
+const REALTOR_GALLERY_SUFFIX = 'rd-w1280_h960.webp'
+
+/**
+ * Upgrade Realtor CDN thumbs (…s.jpg / …od-w640_h480.jpg) to gallery size.
+ * Example: …l-m4272763003s.jpg → …l-m4272763003rd-w1280_h960.webp
+ */
+export function upgradeRealtorImageUrl(url: string): string {
+  const t = url.trim()
+  if (!/ap\.rdcpix\.com/i.test(t)) return t
+  if (new RegExp(`${REALTOR_GALLERY_SUFFIX.replace(/\./g, '\\.')}$`, 'i').test(t)) {
+    return t
+  }
+  const upgraded = t.replace(
+    /(https?:\/\/ap\.rdcpix\.com\/[^?\s#]+?-m\d+)(?:s|od-w\d+_h\d+|rd-w\d+_h\d+)?\.(jpe?g|png|webp)(\?[^#]*)?(#.*)?$/i,
+    `$1${REALTOR_GALLERY_SUFFIX}$3$4`,
+  )
+  return upgraded
+}
+
+/** Prefer large carousel srcs from the listing DOM when present. */
+export function extractRealtorSlideImages(html: string): string[] {
+  const out: string[] = []
+  const tagRe = /<img\b[^>]*\bdata-testid=["']photo-slide-image["'][^>]*>/gi
+  let m: RegExpExecArray | null
+  while ((m = tagRe.exec(html))) {
+    const src = /\bsrc=["']([^"']+)["']/i.exec(m[0])?.[1]
+    if (src) out.push(src)
+  }
+  return out
+}
+
+function realtorPhotoKey(url: string): string {
+  const m = /-m(\d+)/i.exec(url)
+  return m?.[1] ? `m${m[1]}` : url
+}
+
 function uniqUrls(urls: string[]): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -128,6 +165,22 @@ function uniqUrls(urls: string[]): string[] {
     if (!t || !/^https?:\/\//i.test(t)) continue
     if (seen.has(t)) continue
     seen.add(t)
+    out.push(t)
+    if (out.length >= MAX_IMAGES) break
+  }
+  return out
+}
+
+/** Dedupe by Realtor photo id (-m123); keep first (prefer upgraded / slide). */
+function uniqRealtorImages(urls: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of urls) {
+    const t = upgradeRealtorImageUrl(raw)
+    if (!t || !/^https?:\/\//i.test(t)) continue
+    const key = realtorPhotoKey(t)
+    if (seen.has(key)) continue
+    seen.add(key)
     out.push(t)
     if (out.length >= MAX_IMAGES) break
   }
@@ -321,7 +374,7 @@ function fromRealtorNext(
       undefined,
     sqft: asNumber(desc.sqft) ?? undefined,
     ...petsMapped,
-    images: uniqUrls(images),
+    images: uniqRealtorImages(images),
     notes,
   }
 }
@@ -616,6 +669,15 @@ export function extractListingFromHtml(
   parts.push(fromMetaAndRegex(html, source, url))
 
   const merged = mergePartials(...parts)
+
+  if (source === 'realtor') {
+    const slideImgs = extractRealtorSlideImages(html)
+    merged.images = uniqRealtorImages([
+      ...slideImgs,
+      ...(merged.images ?? []),
+    ])
+  }
+
   const hasSignal =
     merged.street ||
     merged.city ||
