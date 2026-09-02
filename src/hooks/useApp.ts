@@ -9,10 +9,12 @@ import { computeFinance } from '../domain/finance/calculations'
 import { evaluateReadiness } from '../domain/insights/readiness'
 import type {
   AppData,
+  CommuteSettings,
   SavedPlace,
   Scenario,
   WizardStepId,
 } from '../domain/types'
+import { normalizeCommuteSettings } from '../domain/places/commute'
 
 const STEP_ORDER: WizardStepId[] = ['stay', 'move', 'picture']
 
@@ -248,6 +250,13 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
     setData(imported)
   }, [])
 
+  const setCommuteSettings = useCallback((settings: CommuteSettings) => {
+    setData((prev) => ({
+      ...prev,
+      commuteSettings: settings,
+    }))
+  }, [])
+
   const finance = useMemo(
     () =>
       data.scenario
@@ -269,6 +278,7 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
     data,
     scenario: data.scenario,
     places: data.places,
+    commuteSettings: normalizeCommuteSettings(data.commuteSettings),
     ui: data.ui,
     finance,
     readiness,
@@ -291,6 +301,7 @@ export function useApp(workspaceUserId: string | null, authReady: boolean) {
     eraseAll,
     exportData,
     importData,
+    setCommuteSettings,
   }
 }
 

@@ -308,10 +308,23 @@ export interface PlaceLiker {
   likedAt?: string | null
 }
 
+/** Drive-time anchor + budget thresholds for place commute badges. */
+export interface CommuteSettings {
+  street: string
+  city: string
+  state: string
+  zip: string
+  /** Green band — ideal commute (minutes). */
+  idealMaxMin: number
+  /** Honey band — still within budget (minutes). */
+  budgetMaxMin: number
+}
+
 export interface AppData {
   version: number
   scenario: Scenario | null
   places: SavedPlace[]
+  commuteSettings?: CommuteSettings
   ui: {
     activeStep: WizardStepId
     mode: 'guide' | 'places'

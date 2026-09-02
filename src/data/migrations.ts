@@ -1,6 +1,7 @@
 import {
   DATA_VERSION,
   type AppData,
+  type CommuteSettings,
   type PetsPolicy,
   type PlaceHomeType,
   type PlaceListingKind,
@@ -15,6 +16,7 @@ import {
   resolvePlaceAddress,
 } from '../domain/places/address'
 import { createExampleScenario } from './exampleScenario'
+import { normalizeCommuteSettings } from '../domain/places/commute'
 
 const WIZARD_STEPS: readonly WizardStepId[] = ['stay', 'move', 'picture']
 
@@ -217,6 +219,9 @@ export function migrateAppData(raw: unknown): AppData {
     version,
     scenario: data.scenario != null ? normalizeScenario(data.scenario) : null,
     places,
+    commuteSettings: normalizeCommuteSettings(
+      (data as { commuteSettings?: unknown }).commuteSettings,
+    ),
     ui: {
       activeStep: normalizeWizardStep(data.ui?.activeStep),
       mode: data.ui?.mode === 'guide' ? 'guide' : 'places',

@@ -15,11 +15,14 @@ import type { PetsPolicy, PlaceTier, SavedPlace } from '../../domain/types'
 import { formatMoney } from '../../domain/finance/calculations'
 import { isLikedByMe, placeImages } from '../../domain/places/filtering'
 import { PLACE_STATUS_LABEL, isPlaceTaken } from '../../domain/places/status'
+import type { CommuteEstimate } from '../../domain/places/commute'
+import type { CommuteSettings } from '../../domain/types'
 import { LIKER_SWATCHES, type LikerSwatch } from '../../domain/places/likes'
 import { motion } from '../../lib/motion'
 import { cn } from '../../lib/utils'
 import { Button, ButtonLink } from '../ui/Button'
 import { OpenableImage } from './ImageLightbox'
+import { CommuteBadge } from './CommuteBadge'
 import type { ListDensity } from './PlacesList'
 
 const PETS_LABEL: Record<PetsPolicy, string> = {
@@ -153,6 +156,8 @@ function PlaceCard({
   place,
   density = 'comfortable',
   moveBudget,
+  commute,
+  commuteSettings,
   selectMode,
   checked,
   likedBy = [],
@@ -170,6 +175,8 @@ function PlaceCard({
   place: SavedPlace
   density?: ListDensity
   moveBudget: number | null
+  commute?: CommuteEstimate | null
+  commuteSettings?: CommuteSettings
   selectMode: boolean
   checked: boolean
   /** Shared list: each person who liked, newest first */
@@ -379,6 +386,7 @@ function PlaceCard({
                 </>
               ) : null}
               <PetsBadge pets={place.pets ?? 'no'} note={place.petsNote} compact />
+              <CommuteBadge commute={commute} settings={commuteSettings} compact />
             </div>
 
             <button

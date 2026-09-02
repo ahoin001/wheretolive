@@ -1,5 +1,4 @@
-/** Pure place list filtering, sorting, and selection-order helpers. */
-
+import type { CommuteSettings } from '../types'
 import {
   PLACE_SQFT_FILTER_OPTIONS,
   type PlaceHomeType,
@@ -8,10 +7,34 @@ import {
 } from '../types'
 import { cityKey, placeCityLabel } from './address'
 import {
+  DEFAULT_COMMUTE_SETTINGS,
+  isWithinCommuteBudget,
+  type CommuteEstimate,
+} from './commute'
+import {
   matchesAddedFilter,
   type AddedFilter,
 } from './addedDate'
 import { isPlaceTaken } from './status'
+
+export type CommuteFilter = 'all' | 'ideal' | 'within_budget' | 'over_budget'
+export const DEFAULT_COMMUTE_FILTER: CommuteFilter = 'all'
+
+export function matchesCommuteFilter(
+  estimate: CommuteEstimate | null | undefined,
+  filter: CommuteFilter,
+  settings: CommuteSettings = DEFAULT_COMMUTE_SETTINGS,
+): boolean {
+  if (filter === 'all') return true
+  const minutes = estimate?.minutes
+  if (minutes == null || !Number.isFinite(minutes)) return false
+  if (filter === 'ideal') return minutes <= settings.idealMaxMin
+  if (filter === 'within_budget') {
+    return isWithinCommuteBudget(estimate, settings)
+  }
+  if (filter === 'over_budget') return minutes > settings.budgetMaxMin
+  return true
+}
 
 export const PLACE_TIERS: PlaceTier[] = ['dream', 'strong', 'maybe', 'pass']
 
@@ -153,6 +176,7 @@ export function countActiveFilters(
   cityFilterActive: boolean,
   addedFilterActive: boolean,
   hideTaken = false,
+  commuteFilter: CommuteFilter = 'all',
 ): number {
   return (
     (listSort !== 'recent' ? 1 : 0) +
@@ -162,7 +186,8 @@ export function countActiveFilters(
     (mutualOnly ? 1 : 0) +
     (cityFilterActive ? 1 : 0) +
     (addedFilterActive ? 1 : 0) +
-    (hideTaken ? 1 : 0)
+    (hideTaken ? 1 : 0) +
+    (commuteFilter !== 'all' ? 1 : 0)
   )
 }
 

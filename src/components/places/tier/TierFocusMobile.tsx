@@ -1,5 +1,7 @@
 import { AnimatePresence, motion as m } from 'motion/react'
 import type { PlaceTier, SavedPlace } from '../../../domain/types'
+import type { CommuteEstimate } from '../../../domain/places/commute'
+import type { CommuteSettings } from '../../../domain/types'
 import {
   isTierReviewActive,
   type TierReviewState,
@@ -35,6 +37,8 @@ export function TierFocusMobile({
   onEdit,
   onOpenLightbox,
   onRequestMoveTier,
+  commuteByPlaceId = {},
+  commuteSettings,
 }: {
   mobileTier: PlaceTier
   items: Record<PlaceTier, string[]>
@@ -53,6 +57,8 @@ export function TierFocusMobile({
   onEdit: (place: SavedPlace) => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
   onRequestMoveTier: (placeId: string) => void
+  commuteByPlaceId?: Record<string, CommuteEstimate>
+  commuteSettings?: CommuteSettings
 }) {
   const mobileBoardIds = items[mobileTier]
   const mobilePlaces = placesForTier(mobileTier)
@@ -194,6 +200,8 @@ export function TierFocusMobile({
                           selectMode={selectMode}
                           canDrag={canDrag}
                           canMoveTier={reorderEnabled && !selectMode}
+                          commute={commuteByPlaceId[place.id]}
+                          commuteSettings={commuteSettings}
                           onToggleSelect={() => onToggleSelect(place.id)}
                           onEdit={() => onEdit(place)}
                           onOpenLightbox={onOpenLightbox}
@@ -209,6 +217,8 @@ export function TierFocusMobile({
                           density="mobile"
                           canDrag={canDrag}
                           canMoveTier={reorderEnabled && !selectMode}
+                          commute={commuteByPlaceId[place.id]}
+                          commuteSettings={commuteSettings}
                           onActivate={() =>
                             selectMode
                               ? onToggleSelect(place.id)

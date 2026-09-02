@@ -1,4 +1,4 @@
-﻿import { useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+﻿import { useDeferredValue, useEffect, useMemo, useRef, useState, useCallback, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import {
   Check,
   CheckSquare,
@@ -58,9 +58,11 @@ import {
   DEFAULT_SQFT_FILTER,
   citiesFromPlaces,
   countActiveFilters,
+  DEFAULT_COMMUTE_FILTER,
   idsInTierDisplayOrder,
   isLikedByMe,
   isMutualLike,
+  matchesCommuteFilter,
   matchesHomeTypeFilter,
   matchesPetsFilter,
   matchesSqftFilter,
@@ -71,6 +73,7 @@ import {
   sortByRecentlyAdded,
   sortPlaces,
   type HomeTypeFilter,
+  type CommuteFilter,
   type ListSort,
   type PetsFilter,
   type SqftFilter,
@@ -115,8 +118,21 @@ import {
 } from './PlacesList'
 import { TierBoard } from './TierBoard'
 import { duplicatePlacesSummary } from '../../domain/places/duplicates'
+import {
+  COMMUTE_PRO_TAG,
+  commuteAnchorLine,
+  commuteQueryFromAddress,
+  hasCommuteAddress,
+  isWithinCommuteBudget,
+} from '../../domain/places/commute'
 import { listIsShared } from '../../data/collaboration/types'
 import { isSupabaseConfigured } from '../../lib/supabase'
+import { useCommuteTimes } from '../../hooks/useCommuteTimes'
+import { CommuteBadge } from './CommuteBadge'
+import {
+  CommuteSettingsButton,
+  CommuteSettingsSheet,
+} from './CommuteSettingsSheet'
 
 const TIERS: PlaceTier[] = ['dream', 'strong', 'maybe', 'pass']
 const TIER_LABEL: Record<PlaceTier, string> = {
@@ -127,6 +143,7 @@ const TIER_LABEL: Record<PlaceTier, string> = {
 }
 
 const PRO_SUGGESTIONS = [
+  COMMUTE_PRO_TAG,
   'Yard',
   'Patio',
   'Modern',
@@ -280,6 +297,10 @@ export function PlacesWorkspace({
   const [dupBusy, setDupBusy] = useState(false)
   const [mutualOnly, setMutualOnly] = useState(false)
   const [hideTaken, setHideTaken] = useState(false)
+  const [commuteFilter, setCommuteFilter] = useState<CommuteFilter>(
+    DEFAULT_COMMUTE_FILTER,
+  )
+  const [commuteSettingsOpen, setCommuteSettingsOpen] = useState(false)
   const [cityKeys, setCityKeys] = useState<string[]>([])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -437,6 +458,7 @@ export function PlacesWorkspace({
   }
 
   const moveBudget = app.finance?.moveMonthly ?? null
+  const commuteSettings = app.commuteSettings
 
   const availableCities = useMemo(() => citiesFromPlaces(allPlaces), [allPlaces])
 
@@ -468,6 +490,29 @@ export function PlacesWorkspace({
     editingId,
   ])
 
+  const commuteQueries = useMemo(() => {
+    const rows: { id: string; query: string }[] = []
+    for (const place of allPlaces) {
+      const query = commuteQueryFromAddress(place)
+      if (query) rows.push({ id: place.id, query })
+    }
+    const draftQuery = commuteQueryFromAddress(form)
+    if (draftQuery) rows.push({ id: '__draft__', query: draftQuery })
+    return rows
+  }, [allPlaces, form.street, form.city, form.state, form.zip])
+
+  const { byId: commuteById } = useCommuteTimes(commuteQueries, commuteSettings)
+
+  const filterByCommute = useCallback(
+    (places: SavedPlace[]) => {
+      if (commuteFilter === 'all') return places
+      return places.filter((p) =>
+        matchesCommuteFilter(commuteById[p.id], commuteFilter, commuteSettings),
+      )
+    },
+    [commuteFilter, commuteById, commuteSettings],
+  )
+
   // Drop city selections that no longer exist in saved places
   const activeCityKeys = useMemo(() => {
     if (!cityKeys.length) return [] as string[]
@@ -476,17 +521,19 @@ export function PlacesWorkspace({
   }, [cityKeys, availableCities])
 
   const listPlaces = useMemo(() => {
-    return sortPlaces(
-      allPlaces,
-      listSort,
-      petsFilter,
-      homeTypeFilter,
-      sqftFilter,
-      activeCityKeys,
-      mutualOnly,
-      addedFilter,
-      hideTaken,
-      deferredListSearch,
+    return filterByCommute(
+      sortPlaces(
+        allPlaces,
+        listSort,
+        petsFilter,
+        homeTypeFilter,
+        sqftFilter,
+        activeCityKeys,
+        mutualOnly,
+        addedFilter,
+        hideTaken,
+        deferredListSearch,
+      ),
     )
   }, [
     allPlaces,
@@ -499,6 +546,10 @@ export function PlacesWorkspace({
     addedFilter,
     hideTaken,
     deferredListSearch,
+    commuteFilter,
+    commuteById,
+    commuteSettings,
+    filterByCommute,
   ])
 
   const boardPlaces = useMemo(() => {
@@ -514,7 +565,7 @@ export function PlacesWorkspace({
     if (activeCityKeys.length) {
       base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
     }
-    return base
+    return filterByCommute(base)
   }, [
     allPlaces,
     petsFilter,
@@ -524,6 +575,10 @@ export function PlacesWorkspace({
     activeCityKeys,
     addedFilter,
     hideTaken,
+    commuteFilter,
+    commuteById,
+    commuteSettings,
+    filterByCommute,
   ])
 
   /** Places in the order the user selected them (for share / copy / guest links). */
@@ -551,12 +606,14 @@ export function PlacesWorkspace({
   const sqftFilterActive = sqftFilter !== 'all'
   const addedFilterActive = isAddedFilterActive(addedFilter)
   const listSearchActive = Boolean(normalizePlaceSearchQuery(listSearch))
+  const commuteFilterActive = commuteFilter !== 'all'
   const hasActiveFilters =
     petsFilterActive ||
     homeTypeFilterActive ||
     sqftFilterActive ||
     mutualOnly ||
     hideTaken ||
+    commuteFilterActive ||
     cityFilterActive ||
     addedFilterActive ||
     (view === 'list' && listSearchActive)
@@ -569,6 +626,7 @@ export function PlacesWorkspace({
     cityFilterActive,
     addedFilterActive,
     hideTaken,
+    commuteFilter,
   ) + (view === 'list' && listSearchActive ? 1 : 0)
 
   const clearAllFilters = () => {
@@ -579,6 +637,7 @@ export function PlacesWorkspace({
     setAddedFilter(DEFAULT_ADDED_FILTER)
     setMutualOnly(false)
     setHideTaken(false)
+    setCommuteFilter(DEFAULT_COMMUTE_FILTER)
     setCityKeys([])
     setListSearch('')
   }
@@ -660,7 +719,17 @@ export function PlacesWorkspace({
           : null,
       pets: form.pets === 'yes' || form.pets === 'limited' ? form.pets : 'no',
       petsNote: form.pets === 'no' ? '' : form.petsNote,
-      proTags: form.proTags,
+      proTags: (() => {
+        const tags = [...form.proTags]
+        const draftCommute = commuteById.__draft__
+        if (
+          isWithinCommuteBudget(draftCommute, commuteSettings) &&
+          !tags.includes(COMMUTE_PRO_TAG)
+        ) {
+          tags.push(COMMUTE_PRO_TAG)
+        }
+        return tags
+      })(),
       concernTags: form.concernTags,
       images: form.images.filter(Boolean),
       boardOrder: editingId
@@ -880,6 +949,30 @@ export function PlacesWorkspace({
             </option>
           ))}
         </select>
+      </label>
+
+      <label className="flex min-w-0 flex-col gap-1.5">
+        <span className="text-xs font-bold uppercase tracking-wide text-ink-soft">
+          Commute
+        </span>
+        <div className="flex min-w-0 items-center gap-2">
+          <select
+            value={commuteFilter}
+            onChange={(e) =>
+              setCommuteFilter(e.target.value as CommuteFilter)
+            }
+            className="h-10 min-w-0 flex-1 rounded-xl border border-line bg-panel px-2.5 text-sm font-bold text-ink md:h-8 md:rounded-lg"
+          >
+            <option value="all">Any</option>
+            <option value="within_budget">Within budget</option>
+            <option value="ideal">Ideal only</option>
+            <option value="over_budget">Over budget</option>
+          </select>
+          <CommuteSettingsButton
+            settings={commuteSettings}
+            onOpen={() => setCommuteSettingsOpen(true)}
+          />
+        </div>
       </label>
 
       {availableCities.length > 0 ? (
@@ -1476,6 +1569,8 @@ export function PlacesWorkspace({
                       place={place}
                       density={density}
                       moveBudget={moveBudget}
+                      commute={commuteById[place.id]}
+                      commuteSettings={commuteSettings}
                       selectMode={selectMode}
                       checked={selectedIds.includes(place.id)}
                       onToggleSelect={() => toggleSelect(place.id)}
@@ -1584,6 +1679,8 @@ export function PlacesWorkspace({
                   selectMode={selectMode}
                   selectedIds={selectedIds}
                   reorderEnabled={!hasActiveFilters}
+                  commuteByPlaceId={commuteById}
+                  commuteSettings={commuteSettings}
                   mobileTier={mobileTier}
                   onMobileTierChange={setMobileTier}
                   mobileMode={mobileTierMode}
@@ -1675,6 +1772,11 @@ export function PlacesWorkspace({
                                 {TIER_LABEL[place.tier]}
                               </span>
                               <PetsBadge pets={place.pets ?? 'no'} compact />
+                              <CommuteBadge
+                                commute={commuteById[place.id]}
+                                settings={commuteSettings}
+                                compact
+                              />
                             </div>
                             <p className="mt-2 text-lg font-bold">{primaryCostLabel(place)}</p>
                             {place.listingKind === 'rent' &&
@@ -2031,6 +2133,36 @@ export function PlacesWorkspace({
                             : ''}
                           . Saving will add another card with the same address.
                         </p>
+                      ) : null}
+                      {hasCommuteAddress(form) ? (
+                        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-line/80 bg-folio/70 px-3 py-2.5">
+                          <CommuteBadge
+                            commute={commuteById.__draft__}
+                            settings={commuteSettings}
+                            showIcon
+                          />
+                          <p className="min-w-0 flex-1 text-xs leading-snug text-ink-soft">
+                            Drive from{' '}
+                            <span className="font-bold text-ink">
+                              {commuteAnchorLine(commuteSettings)}
+                            </span>
+                            . Ideal ≤{commuteSettings.idealMaxMin} min · budget ≤
+                            {commuteSettings.budgetMaxMin} min.
+                            {isWithinCommuteBudget(
+                              commuteById.__draft__,
+                              commuteSettings,
+                            )
+                              ? ` Saves with “${COMMUTE_PRO_TAG}” pro chip.`
+                              : ''}
+                          </p>
+                          <button
+                            type="button"
+                            className="shrink-0 text-xs font-bold text-sea-deep"
+                            onClick={() => setCommuteSettingsOpen(true)}
+                          >
+                            Edit anchor
+                          </button>
+                        </div>
                       ) : null}
                     </FormSection>
 
@@ -2526,6 +2658,13 @@ export function PlacesWorkspace({
           variant="embedded"
         />
       </BottomSheet>
+
+      <CommuteSettingsSheet
+        open={commuteSettingsOpen}
+        onClose={() => setCommuteSettingsOpen(false)}
+        settings={commuteSettings}
+        onSave={app.setCommuteSettings}
+      />
 
       <ConfirmDialog
         open={deleteTarget != null}

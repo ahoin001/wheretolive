@@ -11,7 +11,7 @@ import {
 } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { PetsPolicy, PlaceTier, SavedPlace } from '../../../domain/types'
+import type { CommuteSettings, PetsPolicy, PlaceTier, SavedPlace } from '../../../domain/types'
 import { PLACE_SQFT_FILTER_OPTIONS } from '../../../domain/types'
 import {
   citiesInPlaces,
@@ -20,9 +20,11 @@ import {
   type TierReviewState,
 } from '../../../domain/places/tierReview'
 import { placeCityLabel } from '../../../domain/places/address'
+import type { CommuteEstimate } from '../../../domain/places/commute'
 import { isPlaceTaken } from '../../../domain/places/status'
 import { motion } from '../../../lib/motion'
 import { cn } from '../../../lib/utils'
+import { CommuteBadge } from '../CommuteBadge'
 import { OpenableImage } from '../ImageLightbox'
 import { MobileTierMoveTrigger } from '../TierMoveControls'
 import {
@@ -315,6 +317,8 @@ function SortableBoardTile({
   density,
   canDrag,
   canMoveTier,
+  commute,
+  commuteSettings,
   onActivate,
   onOpenLightbox,
   onRequestMoveTier,
@@ -325,6 +329,8 @@ function SortableBoardTile({
   density: 'mobile' | 'desktop'
   canDrag: boolean
   canMoveTier: boolean
+  commute?: CommuteEstimate | null
+  commuteSettings?: CommuteSettings
   onActivate: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
   onRequestMoveTier?: () => void
@@ -359,6 +365,8 @@ function SortableBoardTile({
         selectMode={selectMode}
         density={density}
         canMoveTier={canMoveTier}
+        commute={commute}
+        commuteSettings={commuteSettings}
         onActivate={onActivate}
         onOpenLightbox={onOpenLightbox}
         onRequestMoveTier={onRequestMoveTier}
@@ -383,6 +391,8 @@ function SortableMobileRow({
   selectMode,
   canDrag,
   canMoveTier,
+  commute,
+  commuteSettings,
   onToggleSelect,
   onEdit,
   onOpenLightbox,
@@ -393,6 +403,8 @@ function SortableMobileRow({
   selectMode: boolean
   canDrag: boolean
   canMoveTier: boolean
+  commute?: CommuteEstimate | null
+  commuteSettings?: CommuteSettings
   onToggleSelect: () => void
   onEdit: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
@@ -427,6 +439,8 @@ function SortableMobileRow({
         selected={selected}
         selectMode={selectMode}
         canMoveTier={canMoveTier}
+        commute={commute}
+        commuteSettings={commuteSettings}
         onToggleSelect={onToggleSelect}
         onEdit={onEdit}
         onOpenLightbox={onOpenLightbox}
@@ -453,6 +467,8 @@ function BoardTile({
   density,
   dragging = false,
   canMoveTier = false,
+  commute,
+  commuteSettings,
   onActivate,
   onOpenLightbox,
   onRequestMoveTier,
@@ -464,6 +480,8 @@ function BoardTile({
   density: 'mobile' | 'desktop'
   dragging?: boolean
   canMoveTier?: boolean
+  commute?: CommuteEstimate | null
+  commuteSettings?: CommuteSettings
   onActivate: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
   onRequestMoveTier?: () => void
@@ -591,6 +609,7 @@ function BoardTile({
               {primaryCostLabel(place)}
             </span>
             <CompactPets pets={place.pets ?? 'no'} />
+            <CommuteBadge commute={commute} settings={commuteSettings} compact />
             {isPlaceTaken(place) ? (
               <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
                 Taken
@@ -625,6 +644,8 @@ function MobileRowCard({
   selected,
   selectMode,
   canMoveTier,
+  commute,
+  commuteSettings,
   onToggleSelect,
   onEdit,
   onOpenLightbox,
@@ -635,6 +656,8 @@ function MobileRowCard({
   selected: boolean
   selectMode: boolean
   canMoveTier: boolean
+  commute?: CommuteEstimate | null
+  commuteSettings?: CommuteSettings
   onToggleSelect: () => void
   onEdit: () => void
   onOpenLightbox: (images: string[], index: number, title?: string) => void
@@ -736,6 +759,7 @@ function MobileRowCard({
                 {primaryCostLabel(place)}
               </span>
               <CompactPets pets={place.pets ?? 'no'} />
+              <CommuteBadge commute={commute} settings={commuteSettings} compact />
               {isPlaceTaken(place) ? (
                 <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
                   Taken

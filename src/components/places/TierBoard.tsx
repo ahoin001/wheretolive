@@ -17,6 +17,8 @@ import {
   rectSortingStrategy,
 } from '@dnd-kit/sortable'
 import type { PlaceTier, SavedPlace } from '../../domain/types'
+import type { CommuteEstimate } from '../../domain/places/commute'
+import type { CommuteSettings } from '../../domain/types'
 import {
   findBoardContainer,
   groupPlacesByTier,
@@ -55,6 +57,8 @@ type TierBoardProps = {
   onMobileTierChange?: (tier: PlaceTier) => void
   mobileMode?: MobileTierMode
   onMobileModeChange?: (mode: MobileTierMode) => void
+  commuteByPlaceId?: Record<string, CommuteEstimate>
+  commuteSettings?: CommuteSettings
 }
 
 export function TierBoard({
@@ -70,6 +74,8 @@ export function TierBoard({
   onMobileTierChange,
   mobileMode: mobileModeControlled,
   onMobileModeChange,
+  commuteByPlaceId = {},
+  commuteSettings,
 }: TierBoardProps) {
   const byTier = useMemo(() => groupPlacesByTier(places), [places])
 
@@ -433,6 +439,8 @@ export function TierBoard({
               onEdit={onEdit}
               onOpenLightbox={onOpenLightbox}
               onRequestMoveTier={setMovingPlaceId}
+              commuteByPlaceId={commuteByPlaceId}
+              commuteSettings={commuteSettings}
             />
           )
         ) : (
@@ -518,6 +526,8 @@ export function TierBoard({
                                     density="desktop"
                                     canDrag={canDrag}
                                     canMoveTier={false}
+                                    commute={commuteByPlaceId[place.id]}
+                                    commuteSettings={commuteSettings}
                                     onActivate={() =>
                                       selectMode
                                         ? onToggleSelect(place.id)
@@ -548,6 +558,8 @@ export function TierBoard({
                 selectMode={false}
                 density="desktop"
                 dragging
+                commute={commuteByPlaceId[activePlace.id]}
+                commuteSettings={commuteSettings}
                 onActivate={() => undefined}
                 onOpenLightbox={() => undefined}
               />
