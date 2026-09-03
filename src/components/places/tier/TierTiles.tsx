@@ -24,7 +24,7 @@ import type { CommuteEstimate } from '../../../domain/places/commute'
 import { isPlaceTaken } from '../../../domain/places/status'
 import { motion } from '../../../lib/motion'
 import { cn } from '../../../lib/utils'
-import { CommuteBadge } from '../CommuteBadge'
+import { CommuteTitleBadge } from '../CommuteBadge'
 import { OpenableImage } from '../ImageLightbox'
 import { MobileTierMoveTrigger } from '../TierMoveControls'
 import {
@@ -594,22 +594,24 @@ function BoardTile({
           onClick={onActivate}
           className={cn('w-full text-left', motion.press)}
         >
-          <p
-            className={cn(
-              'font-bold leading-snug text-ink',
-              density === 'mobile'
-                ? 'line-clamp-2 text-[0.8rem]'
-                : 'line-clamp-2 text-sm',
-            )}
-          >
-            {title}
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p
+              className={cn(
+                'min-w-0 flex-1 font-bold leading-snug text-ink',
+                density === 'mobile'
+                  ? 'line-clamp-2 text-[0.8rem]'
+                  : 'line-clamp-2 text-sm',
+              )}
+            >
+              {title}
+            </p>
+            <CommuteTitleBadge commute={commute} settings={commuteSettings} />
+          </div>
           <p className="mt-1 flex flex-wrap items-center gap-1 text-xs text-ink-soft">
             <span className="font-semibold text-ink">
               {primaryCostLabel(place)}
             </span>
             <CompactPets pets={place.pets ?? 'no'} />
-            <CommuteBadge commute={commute} settings={commuteSettings} compact />
             {isPlaceTaken(place) ? (
               <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
                 Taken
@@ -751,15 +753,17 @@ function MobileRowCard({
             onClick={() => (selectMode ? onToggleSelect() : onEdit())}
             className="w-full text-left"
           >
-            <p className="line-clamp-2 text-[0.95rem] font-bold leading-snug text-ink">
-              {title}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="min-w-0 flex-1 line-clamp-2 text-[0.95rem] font-bold leading-snug text-ink">
+                {title}
+              </p>
+              <CommuteTitleBadge commute={commute} settings={commuteSettings} />
+            </div>
             <p className="mt-1.5 flex flex-wrap items-center gap-1.5 text-sm text-ink-soft">
               <span className="font-semibold text-ink">
                 {primaryCostLabel(place)}
               </span>
               <CompactPets pets={place.pets ?? 'no'} />
-              <CommuteBadge commute={commute} settings={commuteSettings} compact />
               {isPlaceTaken(place) ? (
                 <span className="rounded-full bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">
                   Taken

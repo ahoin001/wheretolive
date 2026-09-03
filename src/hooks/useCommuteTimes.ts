@@ -131,6 +131,7 @@ export function useCommuteTimes(
         const hit = cacheGet(anchorLine, query)
         if (hit) {
           next[id] = commuteEstimateFromMinutes(hit.minutes, settings, {
+            distanceMiles: hit.distanceMiles,
             error: hit.error,
           })
         } else {
@@ -157,6 +158,7 @@ export function useCommuteTimes(
             const cached = cacheGet(anchorLine, query)
             if (cached) {
               merged[id] = commuteEstimateFromMinutes(cached.minutes, settings, {
+                distanceMiles: cached.distanceMiles,
                 error: cached.error,
               })
               continue
@@ -170,6 +172,7 @@ export function useCommuteTimes(
                 at: Date.now(),
               })
               merged[id] = commuteEstimateFromMinutes(row.minutes, settings, {
+                distanceMiles: row.distanceMiles,
                 error: row.error,
               })
             } else if (!merged[id] || merged[id].loading) {

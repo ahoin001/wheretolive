@@ -36,6 +36,7 @@ export type CommuteBand = 'ideal' | 'within' | 'over' | 'unknown'
 
 export type CommuteEstimate = {
   minutes: number | null
+  distanceMiles?: number | null
   band: CommuteBand
   loading?: boolean
   error?: string
@@ -163,12 +164,14 @@ export function commuteQueryFromAddress(
 export function commuteEstimateFromMinutes(
   minutes: number | null,
   settings: Pick<CommuteSettings, 'idealMaxMin' | 'budgetMaxMin'> = DEFAULT_COMMUTE_SETTINGS,
-  partial?: Pick<CommuteEstimate, 'loading' | 'error'>,
+  partial?: Pick<CommuteEstimate, 'loading' | 'error' | 'distanceMiles'>,
 ): CommuteEstimate {
   return {
     minutes,
+    distanceMiles: partial?.distanceMiles ?? null,
     band: commuteBand(minutes, settings),
-    ...partial,
+    loading: partial?.loading,
+    error: partial?.error,
   }
 }
 

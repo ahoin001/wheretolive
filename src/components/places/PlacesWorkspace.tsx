@@ -128,7 +128,7 @@ import {
 import { listIsShared } from '../../data/collaboration/types'
 import { isSupabaseConfigured } from '../../lib/supabase'
 import { useCommuteTimes } from '../../hooks/useCommuteTimes'
-import { CommuteBadge } from './CommuteBadge'
+import { CommuteBadge, CommuteTitleBadge } from './CommuteBadge'
 import {
   CommuteSettingsButton,
   CommuteSettingsSheet,
@@ -1747,9 +1747,15 @@ export function PlacesWorkspace({
                           ) : null}
                           <div className="p-3.5">
                             <div className="flex items-start justify-between gap-2">
-                              <p className="font-bold leading-snug text-ink">
-                                {place.title || 'Untitled'}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="min-w-0 flex-1 font-bold leading-snug text-ink">
+                                  {place.title || 'Untitled'}
+                                </p>
+                                <CommuteTitleBadge
+                                  commute={commuteById[place.id]}
+                                  settings={commuteSettings}
+                                />
+                              </div>
                               <button
                                 type="button"
                                 className="shrink-0 text-sm font-bold text-ink-soft hover:text-ink"
@@ -1772,11 +1778,6 @@ export function PlacesWorkspace({
                                 {TIER_LABEL[place.tier]}
                               </span>
                               <PetsBadge pets={place.pets ?? 'no'} compact />
-                              <CommuteBadge
-                                commute={commuteById[place.id]}
-                                settings={commuteSettings}
-                                compact
-                              />
                             </div>
                             <p className="mt-2 text-lg font-bold">{primaryCostLabel(place)}</p>
                             {place.listingKind === 'rent' &&

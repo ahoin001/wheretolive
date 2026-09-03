@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from 'react'
+import { AnimatePresence, motion as m } from 'motion/react'
 import {
   CheckSquare,
+  ChevronDown,
   Copy,
   ExternalLink,
   Heart,
@@ -19,10 +21,11 @@ import type { CommuteEstimate } from '../../domain/places/commute'
 import type { CommuteSettings } from '../../domain/types'
 import { LIKER_SWATCHES, type LikerSwatch } from '../../domain/places/likes'
 import { motion } from '../../lib/motion'
+import { tweenUi } from '../../lib/motionPresets'
 import { cn } from '../../lib/utils'
 import { Button, ButtonLink } from '../ui/Button'
 import { OpenableImage } from './ImageLightbox'
-import { CommuteBadge } from './CommuteBadge'
+import { CommuteTitleBadge } from './CommuteBadge'
 import type { ListDensity } from './PlacesList'
 
 const PETS_LABEL: Record<PetsPolicy, string> = {
@@ -195,7 +198,10 @@ function PlaceCard({
   copyMenu?: ReactNode
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const compact = density === 'compact'
+  const notesText = place.notes.trim()
+  const canExpand = notesText.length > 0
   const images = placeImages(place)
   const liked = isLikedByMe(place)
   const taken = isPlaceTaken(place)
@@ -222,6 +228,18 @@ function PlaceCard({
     (place.street ? place.street : '') ||
     'Location not set'
 
+  function activateCard() {
+    if (selectMode) {
+      onToggleSelect()
+      return
+    }
+    if (canExpand) {
+      setExpanded((open) => !open)
+      return
+    }
+    onEdit()
+  }
+
   const thumbLikers =
     likedBy.length > 0
       ? likedBy.slice(0, 4)
@@ -240,6 +258,7 @@ function PlaceCard({
         checked ? 'border-sea ring-2 ring-sea/25' : 'border-line sm:hover:border-sea/60',
         taken && 'bg-warn/[0.04]',
       )}
+      aria-expanded={canExpand ? expanded : undefined}
     >
       {/* Media — full-bleed on mobile (Airbnb/Zillow style), rail on desktop */}
       <div
@@ -353,7 +372,13 @@ function PlaceCard({
         className={cn(
           'flex min-w-0 flex-1 flex-col justify-between',
           compact ? 'gap-1 p-2.5 sm:px-3 sm:py-2' : 'gap-2 p-3.5 sm:px-4 sm:py-3',
+          !selectMode && canExpand && 'cursor-pointer',
         )}
+        onClick={(e) => {
+          const target = e.target as HTMLElement
+          if (target.closest('a, button, input, textarea, [data-no-expand]')) return
+          activateCard()
+        }}
       >
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
@@ -386,17 +411,12 @@ function PlaceCard({
                 </>
               ) : null}
               <PetsBadge pets={place.pets ?? 'no'} note={place.petsNote} compact />
-              <CommuteBadge commute={commute} settings={commuteSettings} compact />
             </div>
 
-            <button
-              type="button"
-              onClick={onEdit}
-              className="mt-1 block w-full text-left"
-            >
+            <div className="mt-1 flex items-center gap-2">
               <h3
                 className={cn(
-                  'font-display font-semibold leading-snug tracking-[-0.02em] text-ink',
+                  'min-w-0 flex-1 font-display font-semibold leading-snug tracking-[-0.02em] text-ink',
                   compact ? 'text-base' : 'text-xl',
                 )}
               >
@@ -404,7 +424,32 @@ function PlaceCard({
                   {place.title || 'Untitled place'}
                 </span>
               </h3>
-            </button>
+              <CommuteTitleBadge commute={commute} settings={commuteSettings} />
+              {canExpand ? (
+                <button
+                  type="button"
+                  className={cn(
+                    '-mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-folio hover:text-ink',
+                    motion.chip,
+                  )}
+                  aria-expanded={expanded}
+                  aria-label={expanded ? 'Hide notes' : 'Show notes'}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setExpanded((open) => !open)
+                  }}
+                >
+                  <ChevronDown
+                    className={cn(
+                      'h-4 w-4',
+                      motion.transform,
+                      expanded && 'rotate-180',
+                    )}
+                    aria-hidden
+                  />
+                </button>
+              ) : null}
+            </div>
 
             <p
               className={cn(
@@ -512,7 +557,7 @@ function PlaceCard({
           </div>
         </div>
 
-        {copyMenu ? <div className="relative z-20">{copyMenu}</div> : null}
+          {copyMenu ? <div className="relative z-20" data-no-expand>{copyMenu}</div> : null}
 
         <div className={cn('flex flex-col', compact ? 'gap-1' : 'gap-1.5')}>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
@@ -563,9 +608,35 @@ function PlaceCard({
             </div>
           ) : null}
 
-          {!compact && place.notes ? (
-            <p className="line-clamp-1 text-xs text-ink-soft sm:text-sm">{place.notes}</p>
+          {canExpand && !expanded ? (
+            <p className="line-clamp-1 text-xs text-ink-soft sm:text-sm">
+              {notesText}
+            </p>
           ) : null}
+
+          <AnimatePresence initial={false}>
+            {canExpand && expanded ? (
+              <m.div
+                key="place-notes"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={tweenUi}
+                className="overflow-hidden"
+              >
+                <p
+                  className={cn(
+                    'whitespace-pre-wrap rounded-xl bg-folio/80 text-ink',
+                    compact
+                      ? 'px-2.5 py-2 text-xs leading-relaxed'
+                      : 'px-3 py-2.5 text-sm leading-relaxed',
+                  )}
+                >
+                  {notesText}
+                </p>
+              </m.div>
+            ) : null}
+          </AnimatePresence>
 
           {/* Mobile bottom actions — photo-led, tools one layer deeper */}
           {!selectMode ? (
@@ -695,6 +766,7 @@ function PlaceCard({
             <div
               className="hidden min-w-0 max-w-full gap-1.5 overflow-x-auto pb-0.5 pt-0.5 sm:flex"
               aria-label={`${images.length} photos`}
+              data-no-expand
             >
               {images.map((url, index) => (
                 <OpenableImage
