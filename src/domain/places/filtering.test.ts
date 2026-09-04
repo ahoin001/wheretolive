@@ -167,4 +167,51 @@ describe('sortPlaces', () => {
     )
     expect(found.map((p) => p.id)).toEqual(['b'])
   })
+
+  it('filters to liked places only', () => {
+    const places = [
+      {
+        id: 'liked',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+        pets: 'no',
+        homeType: null,
+        sqft: null,
+        city: 'Miami',
+        location: '',
+        listingKind: 'rent',
+        monthlyEstimate: 1000,
+        likedByMe: true,
+        favorite: true,
+      },
+      {
+        id: 'plain',
+        createdAt: '2024-02-01T00:00:00.000Z',
+        updatedAt: '2024-02-01T00:00:00.000Z',
+        pets: 'yes',
+        homeType: null,
+        sqft: null,
+        city: 'Miami',
+        location: '',
+        listingKind: 'rent',
+        monthlyEstimate: 2000,
+        likedByMe: false,
+        favorite: false,
+      },
+    ] as never
+    const liked = sortPlaces(
+      places,
+      'recent',
+      'all',
+      'all',
+      'all',
+      [],
+      false,
+      { type: 'all' },
+      false,
+      '',
+      true,
+    )
+    expect(liked.map((p) => p.id)).toEqual(['liked'])
+  })
 })

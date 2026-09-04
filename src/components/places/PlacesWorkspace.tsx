@@ -296,6 +296,7 @@ export function PlacesWorkspace({
   const [dupWizardOpen, setDupWizardOpen] = useState(false)
   const [dupBusy, setDupBusy] = useState(false)
   const [mutualOnly, setMutualOnly] = useState(false)
+  const [likedOnly, setLikedOnly] = useState(false)
   const [hideTaken, setHideTaken] = useState(false)
   const [commuteFilter, setCommuteFilter] = useState<CommuteFilter>(
     DEFAULT_COMMUTE_FILTER,
@@ -533,6 +534,7 @@ export function PlacesWorkspace({
         addedFilter,
         hideTaken,
         deferredListSearch,
+        likedOnly,
       ),
     )
   }, [
@@ -543,6 +545,7 @@ export function PlacesWorkspace({
     sqftFilter,
     activeCityKeys,
     mutualOnly,
+    likedOnly,
     addedFilter,
     hideTaken,
     deferredListSearch,
@@ -562,6 +565,7 @@ export function PlacesWorkspace({
         !(hideTaken && p.status === 'taken'),
     )
     if (mutualOnly) base = base.filter(isMutualLike)
+    if (likedOnly) base = base.filter(isLikedByMe)
     if (activeCityKeys.length) {
       base = base.filter((p) => placeMatchesCities(p, activeCityKeys))
     }
@@ -572,6 +576,7 @@ export function PlacesWorkspace({
     homeTypeFilter,
     sqftFilter,
     mutualOnly,
+    likedOnly,
     activeCityKeys,
     addedFilter,
     hideTaken,
@@ -612,6 +617,7 @@ export function PlacesWorkspace({
     homeTypeFilterActive ||
     sqftFilterActive ||
     mutualOnly ||
+    likedOnly ||
     hideTaken ||
     commuteFilterActive ||
     cityFilterActive ||
@@ -627,6 +633,7 @@ export function PlacesWorkspace({
     addedFilterActive,
     hideTaken,
     commuteFilter,
+    likedOnly,
   ) + (view === 'list' && listSearchActive ? 1 : 0)
 
   const clearAllFilters = () => {
@@ -636,6 +643,7 @@ export function PlacesWorkspace({
     setSqftFilter('all')
     setAddedFilter(DEFAULT_ADDED_FILTER)
     setMutualOnly(false)
+    setLikedOnly(false)
     setHideTaken(false)
     setCommuteFilter(DEFAULT_COMMUTE_FILTER)
     setCityKeys([])
@@ -877,6 +885,22 @@ export function PlacesWorkspace({
             onChange={setPetsFilter}
             size="compact"
           />
+          <button
+            type="button"
+            role="switch"
+            aria-checked={likedOnly}
+            onClick={() => setLikedOnly((v) => !v)}
+            className={cn(
+              'inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-xs font-bold',
+              motion.chip,
+              likedOnly
+                ? 'border-sea bg-sea text-white'
+                : 'border-line bg-panel text-ink hover:border-sea',
+            )}
+          >
+            <Heart className={cn('h-3.5 w-3.5', likedOnly && 'fill-current')} />
+            Liked
+          </button>
           {collab.isSharedList ? (
             <button
               type="button"
@@ -1557,6 +1581,7 @@ export function PlacesWorkspace({
                           ? `d:${addedFilter.days}`
                           : addedFilter.type,
                     mutualOnly ? '1' : '0',
+                    likedOnly ? '1' : '0',
                     hideTaken ? '1' : '0',
                     normalizePlaceSearchQuery(deferredListSearch),
                     activeCityKeys.join(','),

@@ -177,6 +177,7 @@ export function countActiveFilters(
   addedFilterActive: boolean,
   hideTaken = false,
   commuteFilter: CommuteFilter = 'all',
+  likedOnly = false,
 ): number {
   return (
     (listSort !== 'recent' ? 1 : 0) +
@@ -184,6 +185,7 @@ export function countActiveFilters(
     (homeTypeFilter !== 'all' ? 1 : 0) +
     (sqftFilter !== 'all' ? 1 : 0) +
     (mutualOnly ? 1 : 0) +
+    (likedOnly ? 1 : 0) +
     (cityFilterActive ? 1 : 0) +
     (addedFilterActive ? 1 : 0) +
     (hideTaken ? 1 : 0) +
@@ -248,6 +250,7 @@ export function sortPlaces(
   addedFilter: AddedFilter,
   hideTaken = false,
   searchQuery = '',
+  likedOnly = false,
 ): SavedPlace[] {
   let next = places.filter((p) => {
     if (!matchesPetsFilter(p, petsFilter)) return false
@@ -255,6 +258,7 @@ export function sortPlaces(
     if (!matchesSqftFilter(p, sqftFilter)) return false
     if (!placeMatchesCities(p, cityKeys)) return false
     if (mutualOnly && !isMutualLike(p)) return false
+    if (likedOnly && !isLikedByMe(p)) return false
     if (!matchesAddedFilter(p, addedFilter)) return false
     if (hideTaken && isPlaceTaken(p)) return false
     if (!matchesPlaceSearch(p, searchQuery)) return false
