@@ -16,8 +16,6 @@ import {
   type ListingImportSource,
 } from './listingImport'
 
-const MAX_IMAGES = 12
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>
@@ -166,7 +164,6 @@ function uniqUrls(urls: string[]): string[] {
     if (seen.has(t)) continue
     seen.add(t)
     out.push(t)
-    if (out.length >= MAX_IMAGES) break
   }
   return out
 }
@@ -182,13 +179,12 @@ function uniqRealtorImages(urls: string[]): string[] {
     if (seen.has(key)) continue
     seen.add(key)
     out.push(t)
-    if (out.length >= MAX_IMAGES) break
   }
   return out
 }
 
 function collectDeepImages(value: unknown, into: string[], depth = 0): void {
-  if (into.length >= MAX_IMAGES || depth > 8) return
+  if (depth > 8) return
   if (typeof value === 'string') {
     if (
       /^https?:\/\//i.test(value) &&

@@ -486,7 +486,7 @@ export function applyListingImport<T extends ListingImportableFields>(
     draft.images.length > 0 &&
     (!Array.isArray(form.images) || form.images.length === 0)
   ) {
-    next.images = draft.images.slice(0, 12) as T['images']
+    next.images = [...draft.images] as T['images']
     applied.push('photos')
   }
 
